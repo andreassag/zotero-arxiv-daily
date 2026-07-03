@@ -29,3 +29,11 @@ jobs:
           echo "Use custom config: "
           cat config/custom.yaml
           uv run src/zotero_arxiv_daily/main.py
+
+      - name: Upload embedding input data as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: embedding-input-data
+          path: outputs/embedding_input_*.json
+          retention-days: 7

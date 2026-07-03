@@ -1,6 +1,6 @@
-from .protocol import Paper
 import math
 
+from .protocol import Paper
 
 framework = """
 <!DOCTYPE HTML>
@@ -40,8 +40,9 @@ To unsubscribe, remove your email in your Github Action setting.
 </html>
 """
 
+
 def get_empty_html():
-  block_template = """
+    block_template = """
   <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
   <tr>
     <td style="font-size: 20px; font-weight: bold; color: #333;">
@@ -50,9 +51,10 @@ def get_empty_html():
   </tr>
   </table>
   """
-  return block_template
+    return block_template
 
-def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affiliations:str=None):
+
+def get_block_html(title: str, authors: str, rate: str, tldr: str, pdf_url: str, affiliations: str = None):
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -85,47 +87,50 @@ def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affi
     </tr>
 </table>
 """
-    return block_template.format(title=title, authors=authors,rate=rate, tldr=tldr, pdf_url=pdf_url, affiliations=affiliations)
+    return block_template.format(
+        title=title, authors=authors, rate=rate, tldr=tldr, pdf_url=pdf_url, affiliations=affiliations
+    )
 
-def get_stars(score:float):
+
+def get_stars(score: float):
     full_star = '<span class="full-star">⭐</span>'
     half_star = '<span class="half-star">⭐</span>'
     low = 6
     high = 8
     if score <= low:
-        return ''
+        return ""
     elif score >= high:
         return full_star * 5
     else:
-        interval = (high-low) / 10
-        star_num = math.ceil((score-low) / interval)
-        full_star_num = int(star_num/2)
+        interval = (high - low) / 10
+        star_num = math.ceil((score - low) / interval)
+        full_star_num = int(star_num / 2)
         half_star_num = star_num - full_star_num * 2
-        return '<div class="star-wrapper">'+full_star * full_star_num + half_star * half_star_num + '</div>'
+        return '<div class="star-wrapper">' + full_star * full_star_num + half_star * half_star_num + "</div>"
 
 
-def render_email(papers:list[Paper]) -> str:
+def render_email(papers: list[Paper]) -> str:
     parts = []
-    if len(papers) == 0 :
-        return framework.replace('__CONTENT__', get_empty_html())
-    
+    if len(papers) == 0:
+        return framework.replace("__CONTENT__", get_empty_html())
+
     for p in papers:
-        #rate = get_stars(p.score)
-        rate = round(p.score, 1) if p.score is not None else 'Unknown'
+        # rate = get_stars(p.score)
+        rate = round(p.score, 1) if p.score is not None else "Unknown"
         author_list = [a for a in p.authors]
         num_authors = len(author_list)
         if num_authors <= 5:
-            authors = ', '.join(author_list)
+            authors = ", ".join(author_list)
         else:
-            authors = ', '.join(author_list[:3] + ['...'] + author_list[-2:])
+            authors = ", ".join(author_list[:3] + ["..."] + author_list[-2:])
         if p.affiliations is not None:
             affiliations = p.affiliations[:5]
-            affiliations = ', '.join(affiliations)
+            affiliations = ", ".join(affiliations)
             if len(p.affiliations) > 5:
-                affiliations += ', ...'
+                affiliations += ", ..."
         else:
-            affiliations = 'Unknown Affiliation'
+            affiliations = "Unknown Affiliation"
         parts.append(get_block_html(p.title, authors, rate, p.tldr, p.pdf_url, affiliations))
 
-    content = '<br>' + '</br><br>'.join(parts) + '</br>'
-    return framework.replace('__CONTENT__', content)
+    content = "<br>" + "</br><br>".join(parts) + "</br>"
+    return framework.replace("__CONTENT__", content)

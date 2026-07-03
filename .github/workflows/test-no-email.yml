@@ -40,3 +40,11 @@ jobs:
           name: email-output
           path: email_output.html
           retention-days: 7
+
+      - name: Upload embedding input data as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: embedding-input-data
+          path: outputs/embedding_input_*.json
+          retention-days: 7
