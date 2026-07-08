@@ -28,52 +28,52 @@ class Paper:
 
     def _generate_tldr_with_llm(self, openai_client: OpenAI, llm_params: dict, tokenizer_type: str = "qwen") -> str:
         lang = llm_params.get("language", "English")
-        prompt = f"Given the following information of a paper, generate a one-sentence TLDR summary in {lang}:\n\n"
+        prompt = f"Summarize the paper in 2-3 concise sentences in {lang}, focusing on what it does and its main results or conclusion.\n\n"
         if self.title:
-            prompt += f"Title:\n {self.title}\n\n"
+            prompt += f"Title: {self.title}\n\n"
 
         if self.abstract:
             prompt += f"Abstract: {self.abstract}\n\n"
+        elif self.full_text:
+            prompt += f"Preview of main content: {self.full_text}\n\n"
 
-        if self.full_text:
-            prompt += f"Preview of main content:\n {self.full_text}\n\n"
-
-        if not self.full_text and not self.abstract:
+        if not self.abstract and not self.full_text:
             logger.warning(f"Neither full text nor abstract is provided for {self.url}")
             return "Failed to generate TLDR. Neither full text nor abstract is provided"
 
-        # Count prompt tokens using the specified tokenizer
-        prompt_token_count = count_tokens(prompt, tokenizer_type)
-        logger.debug(f"TLDR prompt token count for {self.url}: {prompt_token_count}")
+        generation_kwargs = dict(llm_params.get("generation_kwargs", {}))
+        max_completion_tokens = generation_kwargs.get("max_tokens", 16384)
+        if max_completion_tokens is None or max_completion_tokens > 150:
+            generation_kwargs["max_tokens"] = 150
 
-        # Truncate prompt if it's too long (keep within reasonable limits)
         if tokenizer_type == "qwen":
-            # Use tiktoken o200k_base as approximation for truncation
             enc = tiktoken.get_encoding("o200k_base")
         else:
             enc = tiktoken.encoding_for_model("gpt-4o")
 
+        prompt = prompt.strip().replace("\n\n", "\n")
         prompt_tokens = enc.encode(prompt)
-        prompt_tokens = prompt_tokens[:4000]  # truncate to 4000 tokens
+        prompt_tokens = prompt_tokens[:1500]
         prompt = enc.decode(prompt_tokens)
+
+        prompt_token_count = len(prompt_tokens)
+        logger.debug(f"TLDR prompt token count for {self.url}: {prompt_token_count}")
 
         response = openai_client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
-                    "content": f"You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user. Your answer should be in {lang}.",
+                    "content": f"You are an assistant that summarizes scientific papers clearly and concisely. Write 2-3 sentences describing the paper's purpose and main result or conclusion in {lang}.",
                 },
                 {"role": "user", "content": prompt},
             ],
-            **llm_params.get("generation_kwargs", {}),
+            **generation_kwargs,
         )
         tldr = response.choices[0].message.content
 
-        # Count completion tokens
         completion_token_count = count_tokens(tldr, tokenizer_type)
         logger.debug(f"TLDR completion token count for {self.url}: {completion_token_count}")
 
-        # Track token usage
         add_tldr_tokens(prompt_token_count, completion_token_count)
 
         return tldr

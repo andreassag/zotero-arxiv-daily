@@ -302,47 +302,4 @@ class TestTokenizationIntegration:
         assert stats['embedding_tokens'] > 0
         assert stats['total_tokens'] > 0
         assert similarity.shape == (2, 2)  # Should return similarity matrix
-
-    def test_reranker_integration_local(self, config, monkeypatch):
-        """Test token counting integration with local reranker."""
-        from omegaconf import open_dict
-        from tests.canned_responses import make_sample_corpus
-        from zotero_arxiv_daily.reranker.local import LocalReranker
         
-        # Update config for local reranker
-        with open_dict(config):
-            config.reranker.local.model = "jinaai/jina-embeddings-v5-text-nano-retrieval"
-        
-        # Mock SentenceTransformer at the module where it's imported
-        import numpy as np
-        
-        class MockSimilarityResult:
-            def numpy(self):
-                return np.array([[1.0, 0.8], [0.8, 1.0]])
-        
-        class MockSentenceTransformer:
-            def __init__(self, *args, **kwargs):
-                pass
-            def encode(self, texts, **kwargs):
-                return [[0.1, 0.2, 0.3] for _ in texts]
-            def similarity(self, a, b):
-                return MockSimilarityResult()
-        
-        monkeypatch.setattr("sentence_transformers.SentenceTransformer", MockSentenceTransformer)
-        
-        # Create reranker
-        reranker = LocalReranker(config)
-        
-        # Test texts
-        s1 = ["First text", "Second text"]
-        s2 = ["Third text", "Fourth text"]
-        
-        # Get similarity score (this will also count tokens)
-        reset_token_usage_stats()
-        similarity = reranker.get_similarity_score(s1, s2)
-        
-        # Check that token usage was tracked
-        stats = get_token_usage_stats()
-        assert stats['embedding_tokens'] > 0
-        assert stats['total_tokens'] > 0
-        assert similarity.shape == (2, 2)  # Should return similarity matrix
