@@ -41,17 +41,23 @@ class Paper:
             logger.warning(f"Neither full text nor abstract is provided for {self.url}")
             return "Failed to generate TLDR. Neither full text nor abstract is provided"
 
-        prompt_token_count = count_tokens(prompt, tokenizer_type)
-        logger.debug(f"TLDR prompt token count for {self.url}: {prompt_token_count}")
+        generation_kwargs = dict(llm_params.get("generation_kwargs", {}))
+        max_completion_tokens = generation_kwargs.get("max_tokens", 16384)
+        if max_completion_tokens is None or max_completion_tokens > 150:
+            generation_kwargs["max_tokens"] = 150
 
         if tokenizer_type == "qwen":
             enc = tiktoken.get_encoding("o200k_base")
         else:
             enc = tiktoken.encoding_for_model("gpt-4o")
 
+        prompt = prompt.strip().replace("\n\n", "\n")
         prompt_tokens = enc.encode(prompt)
-        prompt_tokens = prompt_tokens[:4000]
+        prompt_tokens = prompt_tokens[:1500]
         prompt = enc.decode(prompt_tokens)
+
+        prompt_token_count = len(prompt_tokens)
+        logger.debug(f"TLDR prompt token count for {self.url}: {prompt_token_count}")
 
         response = openai_client.chat.completions.create(
             messages=[
@@ -61,7 +67,7 @@ class Paper:
                 },
                 {"role": "user", "content": prompt},
             ],
-            **llm_params.get("generation_kwargs", {}),
+            **generation_kwargs,
         )
         tldr = response.choices[0].message.content
 
