@@ -10,8 +10,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
 
       - name: Run script (no email)
         env:
@@ -28,10 +31,13 @@ jobs:
           SAVE_EMAIL_PATH: "email_output.html"
         run: |
           export DEBUG=true
-          printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
-          echo "Use custom config: "
-          cat config/custom.yaml
-          uv run src/zotero_arxiv_daily/main.py
+          cp config/config.yaml config/base.yaml
+          if [ -n "$CUSTOM_CONFIG" ]; then
+            printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
+            echo "Use custom config: "
+            cat config/custom.yaml
+          fi
+          go run go/cmd/zotero-arxiv-daily/main.go -config config
 
       - name: Upload email output as artifact
         if: always()

@@ -1,0 +1,51 @@
+# Zotero API configuration
+zotero:
+  user_id: "${ZOTERO_ID}"     # Your Zotero user ID
+  api_key: "${ZOTERO_KEY}"     # Your Zotero API key with read permission
+  include_path: null           # List of glob patterns to include (e.g. ["2026/survey/**"])
+  ignore_path: null            # List of glob patterns to ignore (e.g. ["archive/**"])
+
+# Source paper categories to check
+source:
+  arxiv:
+    category: ["cs.AI", "cs.CV", "cs.LG", "cs.CL"]
+    include_cross_list: false
+  biorxiv:
+    category: ["bioinformatics"]
+  medrxiv:
+    category: ["neurology"]
+
+# SMTP email server configuration for digest dispatch
+email:
+  sender: "${SENDER}"
+  receiver: "${RECEIVER}"
+  smtp_server: "smtp.qq.com"
+  smtp_port: 465               # Use 465 for SSL, or 587/25 for STARTTLS
+  sender_password: "${SENDER_PASSWORD}"
+  smtp_user: "${SMTP_USER}"
+
+# OpenAI API details for generating paper TL;DRs and affiliations
+llm:
+  api:
+    key: "${OPENAI_API_KEY}"
+    base_url: "${OPENAI_API_BASE}"
+  generation_kwargs:
+    model: "gpt-4o-mini"
+    max_tokens: 150
+  language: "English"          # Target language for TL;DR summaries
+
+# Embedding model API settings for paper reranking
+reranker:
+  api:
+    key: "${RERANKER_API_KEY}"
+    base_url: "${RERANKER_API_BASE}"
+    model: "text-embedding-3-large"
+    batch_size: 64
+
+# Executor execution parameters
+executor:
+  debug: false
+  send_empty: false
+  max_paper_num: 100
+  source: ["arxiv"]
+  reranker: "api"
