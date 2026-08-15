@@ -1,6 +1,10 @@
-import logging
 import os
 import sys
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["ORT_LOGGING_LEVEL"] = "3"
+
+import logging
 
 import dotenv
 import hydra
@@ -9,7 +13,6 @@ from omegaconf import DictConfig
 
 from zotero_arxiv_daily.executor import Executor
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 dotenv.load_dotenv()
 
 

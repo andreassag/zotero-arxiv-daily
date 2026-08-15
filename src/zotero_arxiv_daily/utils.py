@@ -302,3 +302,268 @@ def add_tldr_tokens(prompt_tokens: int, completion_tokens: int):
     _token_usage_stats["tldr_prompt_tokens"] += prompt_tokens
     _token_usage_stats["tldr_completion_tokens"] += completion_tokens
     _token_usage_stats["total_tokens"] += prompt_tokens + completion_tokens
+
+
+# Academic boilerplate regex patterns to strip
+_BOILERPLATE_PATTERNS = [
+    re.compile(
+        r"\b(in\s+this\s+paper,?\s*(we\s+)?(propose|present|introduce|show|investigate|study|examine|develop|evaluate)?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(our\s+(experimental\s+)?results\s+(demonstrate|show|indicate|suggest|prove))\b", re.IGNORECASE),
+    re.compile(
+        r"\b(we\s+(propose|present|introduce|show|demonstrate|evaluate|find|observe|develop)\s+(a\s+novel|an|a)?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(furthermore|moreover|specifically|in\s+addition|to\s+this\s+end|consequently|nevertheless)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(extensive\s+experiments\s+(on|show|demonstrate))\b", re.IGNORECASE),
+    re.compile(r"\b(state-of-the-art|state\s+of\s+the\s+art|sota)\b", re.IGNORECASE),
+]
+
+_ENGLISH_STOPWORDS = {
+    "a",
+    "about",
+    "above",
+    "after",
+    "again",
+    "against",
+    "all",
+    "am",
+    "an",
+    "and",
+    "any",
+    "are",
+    "aren't",
+    "as",
+    "at",
+    "be",
+    "because",
+    "been",
+    "before",
+    "being",
+    "below",
+    "between",
+    "both",
+    "but",
+    "by",
+    "can",
+    "cannot",
+    "could",
+    "couldn't",
+    "did",
+    "didn't",
+    "do",
+    "does",
+    "doesn't",
+    "doing",
+    "don't",
+    "down",
+    "during",
+    "each",
+    "few",
+    "for",
+    "from",
+    "further",
+    "had",
+    "hadn't",
+    "has",
+    "hasn't",
+    "have",
+    "haven't",
+    "having",
+    "he",
+    "hed",
+    "hell",
+    "hes",
+    "her",
+    "here",
+    "heres",
+    "hers",
+    "herself",
+    "him",
+    "himself",
+    "his",
+    "how",
+    "hows",
+    "i",
+    "id",
+    "ill",
+    "im",
+    "ive",
+    "if",
+    "in",
+    "into",
+    "is",
+    "isn't",
+    "it",
+    "its",
+    "itself",
+    "lets",
+    "me",
+    "more",
+    "most",
+    "mustn't",
+    "my",
+    "myself",
+    "no",
+    "nor",
+    "not",
+    "of",
+    "off",
+    "on",
+    "once",
+    "only",
+    "or",
+    "other",
+    "ought",
+    "our",
+    "ours",
+    "ourselves",
+    "out",
+    "over",
+    "own",
+    "same",
+    "she",
+    "shed",
+    "shell",
+    "shes",
+    "should",
+    "shouldn't",
+    "so",
+    "some",
+    "such",
+    "than",
+    "that",
+    "thats",
+    "the",
+    "their",
+    "theirs",
+    "them",
+    "themselves",
+    "then",
+    "there",
+    "theres",
+    "these",
+    "they",
+    "theyd",
+    "theyll",
+    "theyre",
+    "theyve",
+    "this",
+    "those",
+    "through",
+    "to",
+    "too",
+    "under",
+    "until",
+    "up",
+    "very",
+    "was",
+    "wasn't",
+    "we",
+    "wed",
+    "well",
+    "were",
+    "weren't",
+    "weve",
+    "what",
+    "whats",
+    "when",
+    "whens",
+    "where",
+    "wheres",
+    "which",
+    "while",
+    "who",
+    "whos",
+    "whom",
+    "why",
+    "whys",
+    "with",
+    "won't",
+    "would",
+    "wouldn't",
+    "you",
+    "youd",
+    "youll",
+    "youre",
+    "youve",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
+}
+
+
+def compress_text(
+    text: str, max_words: int | None = None, remove_boilerplate: bool = True, remove_stopwords: bool = True
+) -> str:
+    """
+    Compress input text into concise content keywords ("Neanderthal talk").
+
+    Strips academic boilerplate phrases and binding stopwords, retaining domain-specific
+    technical terms and core content words. Applies word limit truncation as fallback.
+    """
+    if not text:
+        return ""
+
+    cleaned = text
+    if remove_boilerplate:
+        for pat in _BOILERPLATE_PATTERNS:
+            cleaned = pat.sub("", cleaned)
+
+    tokens = _TOKEN_RE.findall(cleaned)
+    if remove_stopwords:
+        filtered = [t for t in tokens if t.lower() not in _ENGLISH_STOPWORDS and len(t) > 1]
+    else:
+        filtered = tokens
+
+    if max_words is not None and len(filtered) > max_words:
+        filtered = filtered[:max_words]
+
+    return " ".join(filtered)
+
+
+def extract_recency_weighted_keywords(corpus: list, top_n: int = 15, half_life_days: float = 90.0) -> list[str]:
+    """
+    Extract top keywords/keyphrases from Zotero corpus papers weighted by recency decay.
+    Uses exponential time decay based on paper added_date: weight = 2 ** (-age_in_days / half_life_days).
+    """
+    if not corpus:
+        return []
+
+    now = datetime.datetime.now(datetime.UTC)
+    term_scores: Counter[str] = Counter()
+
+    for paper in corpus:
+        added_date = getattr(paper, "added_date", None)
+        if added_date is None:
+            weight = 1.0
+        else:
+            if added_date.tzinfo is None:
+                added_date = added_date.replace(tzinfo=datetime.UTC)
+            age_days = max(0.0, (now - added_date).total_seconds() / 86400.0)
+            weight = math.pow(2.0, -age_days / max(half_life_days, 1.0))
+
+        title = getattr(paper, "title", "") or ""
+        abstract = getattr(paper, "abstract", "") or ""
+        text = f"{title} {abstract}"
+
+        tokens = [t.lower() for t in _TOKEN_RE.findall(text) if t.lower() not in _ENGLISH_STOPWORDS and len(t) > 2]
+
+        seen_terms = set()
+        for t in tokens:
+            seen_terms.add(t)
+
+        for i in range(len(tokens) - 1):
+            bigram = f"{tokens[i]} {tokens[i + 1]}"
+            seen_terms.add(bigram)
+
+        for term in seen_terms:
+            term_scores[term] += weight
+
+    top_terms = [term for term, score in term_scores.most_common(top_n * 2) if not term.isdigit()]
+    return top_terms[:top_n]

@@ -6,22 +6,30 @@ from loguru import logger
 from openai import OpenAI
 
 from ..utils import add_embedding_tokens, count_tokens_batch
-from .base import BaseReranker, register_reranker
+from .base import BaseScreener, register_screener
 
 
-@register_reranker("api")
-class ApiReranker(BaseReranker):
+@register_screener("api")
+class ApiScreener(BaseScreener):
     def get_similarity_score(self, s1: list[str], s2: list[str]) -> np.ndarray:
         # Save the input data for debugging/inspection
         self._save_embedding_input_data(s1, s2)
 
-        client = OpenAI(api_key=self.config.reranker.api.key, base_url=self.config.reranker.api.base_url)
-        batch_size = self.config.reranker.api.get("batch_size") or 64
+        api_config = getattr(self.config, "screener", getattr(self.config, "reranker", None))
+        if hasattr(api_config, "api"):
+            api_config = api_config.api
+
+        api_key = getattr(api_config, "key", None) or getattr(self.config.llm.api, "key", None)
+        base_url = getattr(api_config, "base_url", None) or getattr(self.config.llm.api, "base_url", None)
+        model_name = getattr(api_config, "model", None) or "text-embedding-3-large"
+
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        batch_size = getattr(api_config, "batch_size", 64) or 64
         all_texts = s1 + s2
         all_embeddings = []
 
         # Count tokens for embedding input using Qwen tokenizer
-        tokenizer_type = self.config.reranker.api.get("tokenizer_type", "qwen")
+        tokenizer_type = getattr(api_config, "tokenizer_type", "qwen")
 
         for i in range(0, len(all_texts), batch_size):
             batch = all_texts[i : i + batch_size]
@@ -32,7 +40,7 @@ class ApiReranker(BaseReranker):
             add_embedding_tokens(total_batch_tokens)
             logger.debug(f"Embedding batch {i // batch_size + 1} token count: {total_batch_tokens}")
 
-            response = client.embeddings.create(input=batch, model=self.config.reranker.api.model)
+            response = client.embeddings.create(input=batch, model=api_config.model)
             all_embeddings.extend([r.embedding for r in response.data])
 
         s1_embeddings = np.array(all_embeddings[: len(s1)])  # [n_s1, d]
@@ -62,3 +70,7 @@ class ApiReranker(BaseReranker):
 
         except Exception as e:
             logger.error(f"Failed to save embedding input data: {e}")
+
+
+# Alias for backward compatibility
+ApiReranker = ApiScreener

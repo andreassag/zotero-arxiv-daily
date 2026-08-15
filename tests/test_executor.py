@@ -8,7 +8,6 @@ from omegaconf import OmegaConf
 from zotero_arxiv_daily.executor import Executor, normalize_path_patterns
 from zotero_arxiv_daily.protocol import CorpusPaper
 
-
 # ---------------------------------------------------------------------------
 # normalize_path_patterns — migrated from test_include_path.py
 # ---------------------------------------------------------------------------
@@ -41,8 +40,20 @@ def test_normalize_path_patterns_accepts_empty_list():
     assert normalize_path_patterns([], "ignore_path") == []
 
 
-def test_normalize_path_patterns_accepts_none():
-    assert normalize_path_patterns(None, "include_path") is None
+def test_executor_auto_detects_sources(config):
+    from omegaconf import open_dict
+
+    import zotero_arxiv_daily.retriever.arxiv_retriever
+    import zotero_arxiv_daily.retriever.biorxiv_retriever  # noqa: F401
+
+    with open_dict(config):
+        config.executor.source = None
+        config.source.arxiv.category = ["cs.AI"]
+        config.source.biorxiv.category = ["bioinformatics"]
+        config.source.medrxiv.category = None
+
+    executor = Executor(config)
+    assert set(executor.retrievers.keys()) == {"arxiv", "biorxiv"}
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +63,9 @@ def test_normalize_path_patterns_accepts_none():
 
 def _make_executor(include_patterns=None, ignore_patterns=None):
     executor = Executor.__new__(Executor)
-    executor.include_path_patterns = normalize_path_patterns(include_patterns, "include_path") if include_patterns else None
+    executor.include_path_patterns = (
+        normalize_path_patterns(include_patterns, "include_path") if include_patterns else None
+    )
     executor.ignore_path_patterns = normalize_path_patterns(ignore_patterns, "ignore_path") if ignore_patterns else None
     return executor
 
@@ -60,8 +73,18 @@ def _make_executor(include_patterns=None, ignore_patterns=None):
 def test_filter_corpus_matches_any_path_against_any_pattern():
     executor = _make_executor(include_patterns=["2026/survey/**", "2026/reading-group/**"])
     corpus = [
-        CorpusPaper(title="Survey Paper", abstract="", added_date=datetime(2026, 1, 1), paths=["2026/survey/topic-a", "archive/misc"]),
-        CorpusPaper(title="Reading Group Paper", abstract="", added_date=datetime(2026, 1, 2), paths=["notes/inbox", "2026/reading-group/week-1"]),
+        CorpusPaper(
+            title="Survey Paper",
+            abstract="",
+            added_date=datetime(2026, 1, 1),
+            paths=["2026/survey/topic-a", "archive/misc"],
+        ),
+        CorpusPaper(
+            title="Reading Group Paper",
+            abstract="",
+            added_date=datetime(2026, 1, 2),
+            paths=["notes/inbox", "2026/reading-group/week-1"],
+        ),
         CorpusPaper(title="Excluded Paper", abstract="", added_date=datetime(2026, 1, 3), paths=["2025/other/topic"]),
     ]
     filtered = executor.filter_corpus(corpus)
@@ -82,7 +105,9 @@ def test_filter_corpus_excludes_papers_matching_ignore_path():
 def test_filter_corpus_ignore_path_takes_precedence_over_include_path():
     executor = _make_executor(include_patterns=["2026/**"], ignore_patterns=["2026/ignore/**"])
     corpus = [
-        CorpusPaper(title="Included Paper", abstract="", added_date=datetime(2026, 1, 1), paths=["2026/survey/topic-a"]),
+        CorpusPaper(
+            title="Included Paper", abstract="", added_date=datetime(2026, 1, 1), paths=["2026/survey/topic-a"]
+        ),
         CorpusPaper(title="Ignored Paper", abstract="", added_date=datetime(2026, 1, 2), paths=["2026/ignore/topic-b"]),
     ]
     filtered = executor.filter_corpus(corpus)
@@ -155,7 +180,6 @@ def test_run_end_to_end(config, monkeypatch):
     from omegaconf import open_dict
 
     from tests.canned_responses import (
-        make_sample_corpus,
         make_sample_paper,
         make_stub_openai_client,
         make_stub_smtp,
@@ -183,7 +207,6 @@ def test_run_end_to_end(config, monkeypatch):
 
     # Import to register the arxiv retriever
     import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
     from zotero_arxiv_daily.retriever.base import registered_retrievers
 
     monkeypatch.setattr(
@@ -230,7 +253,6 @@ def test_run_no_papers_send_empty_false(config, monkeypatch):
     monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda **kw: stub_client)
 
     import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
     from zotero_arxiv_daily.retriever.base import registered_retrievers
 
     monkeypatch.setattr(registered_retrievers["arxiv"], "retrieve_papers", lambda self: [])
@@ -266,7 +288,6 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
     monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda **kw: stub_client)
 
     import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
     from zotero_arxiv_daily.retriever.base import registered_retrievers
 
     monkeypatch.setattr(registered_retrievers["arxiv"], "retrieve_papers", lambda self: [])
@@ -291,10 +312,15 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
 def test_run_no_email_environment_variable(config, monkeypatch):
     """When NO_EMAIL environment variable is set, email is not sent but content is generated and logged."""
     import smtplib
-    import os
 
     from omegaconf import open_dict
-    from tests.canned_responses import make_stub_openai_client, make_stub_smtp, make_stub_zotero_client, make_sample_paper
+
+    from tests.canned_responses import (
+        make_sample_paper,
+        make_stub_openai_client,
+        make_stub_smtp,
+        make_stub_zotero_client,
+    )
 
     with open_dict(config):
         config.executor.source = ["arxiv"]
@@ -313,7 +339,6 @@ def test_run_no_email_environment_variable(config, monkeypatch):
 
     # Import to register the arxiv retriever
     import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
     from zotero_arxiv_daily.retriever.base import registered_retrievers
 
     retrieved = [make_sample_paper(title="Test Paper", score=None)]
@@ -333,11 +358,17 @@ def test_run_no_email_environment_variable(config, monkeypatch):
 
 def test_run_no_email_false(config, monkeypatch):
     """When NO_EMAIL environment variable is not set or false, email is sent normally."""
-    import smtplib
     import os
+    import smtplib
 
     from omegaconf import open_dict
-    from tests.canned_responses import make_stub_openai_client, make_stub_smtp, make_stub_zotero_client, make_sample_paper
+
+    from tests.canned_responses import (
+        make_sample_paper,
+        make_stub_openai_client,
+        make_stub_smtp,
+        make_stub_zotero_client,
+    )
 
     with open_dict(config):
         config.executor.source = ["arxiv"]
@@ -357,7 +388,6 @@ def test_run_no_email_false(config, monkeypatch):
 
     # Import to register the arxiv retriever
     import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
     from zotero_arxiv_daily.retriever.base import registered_retrievers
 
     retrieved = [make_sample_paper(title="Test Paper", score=None)]
@@ -379,11 +409,17 @@ def test_run_no_email_false(config, monkeypatch):
 
 def test_run_no_email_with_save_path(config, monkeypatch, tmp_path):
     """When NO_EMAIL=true and SAVE_EMAIL_PATH is set, email content is saved to file."""
-    import smtplib
     import os
+    import smtplib
 
     from omegaconf import open_dict
-    from tests.canned_responses import make_stub_openai_client, make_stub_smtp, make_stub_zotero_client, make_sample_paper
+
+    from tests.canned_responses import (
+        make_sample_paper,
+        make_stub_openai_client,
+        make_stub_smtp,
+        make_stub_zotero_client,
+    )
 
     with open_dict(config):
         config.executor.source = ["arxiv"]
@@ -404,7 +440,6 @@ def test_run_no_email_with_save_path(config, monkeypatch, tmp_path):
 
     # Import to register the arxiv retriever
     import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
     from zotero_arxiv_daily.retriever.base import registered_retrievers
 
     retrieved = [make_sample_paper(title="Test Paper", score=None)]
@@ -423,7 +458,7 @@ def test_run_no_email_with_save_path(config, monkeypatch, tmp_path):
 
     # File should be created and contain HTML content
     assert os.path.exists(save_path), "Email file should be saved"
-    with open(save_path, 'r', encoding='utf-8') as f:
+    with open(save_path, encoding="utf-8") as f:
         content = f.read()
     assert "<html>" in content or "html>" in content, "Saved file should contain HTML content"
 
@@ -431,14 +466,19 @@ def test_run_no_email_with_save_path(config, monkeypatch, tmp_path):
 def test_run_no_email_variations(config, monkeypatch):
     """Test various NO_EMAIL environment variable values."""
     import smtplib
-    import os
 
     from omegaconf import open_dict
-    from tests.canned_responses import make_stub_openai_client, make_stub_smtp, make_stub_zotero_client, make_sample_paper
+
+    from tests.canned_responses import (
+        make_sample_paper,
+        make_stub_openai_client,
+        make_stub_smtp,
+        make_stub_zotero_client,
+    )
 
     # Test different NO_EMAIL values that should prevent email sending
     no_email_values = ["true", "1", "yes", "True", "TRUE"]
-    
+
     for no_email_value in no_email_values:
         with open_dict(config):
             config.executor.source = ["arxiv"]
@@ -449,19 +489,18 @@ def test_run_no_email_variations(config, monkeypatch):
         monkeypatch.setenv("NO_EMAIL", no_email_value)
 
         stub_zot = make_stub_zotero_client()
-        monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, **kw: stub_zot)
+        monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, _zot=stub_zot, **kw: _zot)
 
         stub_client = make_stub_openai_client()
-        monkeypatch.setattr("zotero_arxiv_daily.executor.OpenAI", lambda **kw: stub_client)
-        monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda **kw: stub_client)
+        monkeypatch.setattr("zotero_arxiv_daily.executor.OpenAI", lambda _client=stub_client, **kw: _client)
+        monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda _client=stub_client, **kw: _client)
 
         # Import to register the arxiv retriever
         import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
-
         from zotero_arxiv_daily.retriever.base import registered_retrievers
 
         retrieved = [make_sample_paper(title="Test Paper", score=None)]
-        monkeypatch.setattr(registered_retrievers["arxiv"], "retrieve_papers", lambda self: retrieved)
+        monkeypatch.setattr(registered_retrievers["arxiv"], "retrieve_papers", lambda self, _ret=retrieved: _ret)
 
         sent = []
         monkeypatch.setattr(smtplib, "SMTP", make_stub_smtp(sent))
@@ -476,12 +515,12 @@ def test_run_no_email_variations(config, monkeypatch):
 
     # Test values that should NOT prevent email sending
     normal_values = ["false", "0", "no", "", "random"]
-    
+
     for normal_value in normal_values:
         # Clean up from previous test
         sent = []
         monkeypatch.setattr(smtplib, "SMTP", make_stub_smtp(sent))
-        
+
         with open_dict(config):
             config.executor.source = ["arxiv"]
             config.executor.reranker = "api"
@@ -491,19 +530,16 @@ def test_run_no_email_variations(config, monkeypatch):
         monkeypatch.setenv("NO_EMAIL", normal_value)
 
         stub_zot = make_stub_zotero_client()
-        monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, **kw: stub_zot)
+        monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, _zot=stub_zot, **kw: _zot)
 
         stub_client = make_stub_openai_client()
-        monkeypatch.setattr("zotero_arxiv_daily.executor.OpenAI", lambda **kw: stub_client)
-        monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda **kw: stub_client)
-
-        # Import to register the arxiv retriever
-        import zotero_arxiv_daily.retriever.arxiv_retriever  # noqa: F401
+        monkeypatch.setattr("zotero_arxiv_daily.executor.OpenAI", lambda _client=stub_client, **kw: _client)
+        monkeypatch.setattr("zotero_arxiv_daily.reranker.api.OpenAI", lambda _client=stub_client, **kw: _client)
 
         from zotero_arxiv_daily.retriever.base import registered_retrievers
 
         retrieved = [make_sample_paper(title="Test Paper", score=None)]
-        monkeypatch.setattr(registered_retrievers["arxiv"], "retrieve_papers", lambda self: retrieved)
+        monkeypatch.setattr(registered_retrievers["arxiv"], "retrieve_papers", lambda self, _ret=retrieved: _ret)
 
         monkeypatch.setattr("zotero_arxiv_daily.retriever.base.sleep", lambda _: None)
 
@@ -513,3 +549,4 @@ def test_run_no_email_variations(config, monkeypatch):
 
         # Email should be sent for these values
         assert len(sent) == 1, f"Email should be sent when NO_EMAIL={normal_value}"
+

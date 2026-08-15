@@ -5,7 +5,7 @@ import pytest
 from tests.canned_responses import make_stub_openai_client
 
 
-@pytest.fixture()
+@pytest.fixture
 def patch_openai(monkeypatch):
     """Patch OpenAI constructor where ApiReranker imports it.
 

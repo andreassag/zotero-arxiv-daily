@@ -4,11 +4,11 @@ All mocking uses pytest monkeypatch + SimpleNamespace. No unittest.mock.
 """
 
 import copy
+from pathlib import Path
 
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from pathlib import Path
 
 _CONFIG_DIR = str(Path(__file__).resolve().parent.parent / "config")
 
@@ -36,20 +36,23 @@ def _base_config():
                 "llm.api.key=sk-fake",
                 "llm.api.base_url=http://localhost:30000/v1",
                 "llm.generation_kwargs.model=gpt-4o-mini",
-                "reranker.api.key=sk-fake",
-                "reranker.api.base_url=http://localhost:30000/v1",
-                "reranker.api.model=text-embedding-3-large",
+                "screener.key=sk-fake",
+                "screener.base_url=http://localhost:30000/v1",
+                "screener.model=text-embedding-3-large",
+                "reranker.key=sk-fake",
+                "reranker.base_url=http://localhost:30000/v1",
+                "reranker.model=Qwen/Qwen3-Reranker-8B",
                 "source.arxiv.category=[cs.AI,cs.CV]",
                 "executor.source=[arxiv]",
-                "executor.reranker=api",
                 "executor.debug=false",
                 "executor.send_empty=false",
             ],
         )
+
     return cfg
 
 
-@pytest.fixture()
+@pytest.fixture
 def config(_base_config):
     """Function-scoped deep copy of the session config.
 

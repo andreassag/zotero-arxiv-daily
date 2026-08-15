@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 from zotero_arxiv_daily.protocol import CorpusPaper, Paper
 
-
 # ---------------------------------------------------------------------------
 # OpenAI client stub
 # ---------------------------------------------------------------------------

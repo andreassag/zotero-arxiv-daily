@@ -1,15 +1,21 @@
 """Tests for zotero_arxiv_daily.construct_email: render_email, get_stars, get_block_html."""
 
-from zotero_arxiv_daily.construct_email import render_email, get_stars, get_block_html, get_empty_html
-from tests.canned_responses import make_sample_paper
+from tests.canned_responses import make_sample_corpus, make_sample_paper
+from zotero_arxiv_daily.construct_email import get_block_html, get_empty_html, get_stars, render_email
 
 
 def test_render_email_with_papers():
-    papers = [make_sample_paper(score=7.5, tldr="A great paper.", affiliations=["MIT"])]
+    corpus = make_sample_corpus(1)
+    paper = make_sample_paper(score=7.5, tldr="A great paper.", affiliations=["MIT"])
+    paper.matched_reference = corpus[0]
+    papers = [paper]
     html = render_email(papers)
     assert "Sample Paper Title" in html
     assert "A great paper." in html
     assert "MIT" in html
+    assert "7.5 / 10" in html
+    assert "Matched reference:" in html
+    assert corpus[0].title in html
 
 
 def test_render_email_empty_list():

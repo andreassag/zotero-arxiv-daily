@@ -54,35 +54,52 @@ def get_empty_html():
     return block_template
 
 
-def get_block_html(title: str, authors: str, rate: str, tldr: str, pdf_url: str, affiliations: str = None):
-    block_template = """
+def get_block_html(
+    title: str,
+    authors: str,
+    rate: str,
+    tldr: str,
+    pdf_url: str,
+    affiliations: str = None,
+    matched_ref_title: str | None = None,
+):
+    ref_line = ""
+    if matched_ref_title:
+        ref_line = f"""
+    <tr>
+        <td style="font-size: 13px; color: #555; padding: 4px 0;">
+            <strong>Matched reference:</strong> <i>{matched_ref_title}</i>
+        </td>
+    </tr>"""
+
+    block_template = f"""
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
         <td style="font-size: 20px; font-weight: bold; color: #333;">
-            {title}
+            {{title}}
         </td>
     </tr>
     <tr>
         <td style="font-size: 14px; color: #666; padding: 8px 0;">
-            {authors}
+            {{authors}}
             <br>
-            <i>{affiliations}</i>
+            <i>{{affiliations}}</i>
         </td>
     </tr>
     <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
-            <strong>Relevance:</strong> {rate}
+            <strong>Relevance:</strong> {{rate}}
         </td>
-    </tr>
+    </tr>{ref_line}
     <tr>
         <td style="font-size: 14px; color: #333; padding: 8px 0;">
-            <strong>TLDR:</strong> {tldr}
+            <strong>TLDR:</strong> {{tldr}}
         </td>
     </tr>
 
     <tr>
         <td style="padding: 8px 0;">
-            <a href="{pdf_url}" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: bold; color: #fff; background-color: #d9534f; padding: 8px 16px; border-radius: 4px;">PDF</a>
+            <a href="{{pdf_url}}" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: bold; color: #fff; background-color: #d9534f; padding: 8px 16px; border-radius: 4px;">PDF</a>
         </td>
     </tr>
 </table>
@@ -115,8 +132,8 @@ def render_email(papers: list[Paper]) -> str:
         return framework.replace("__CONTENT__", get_empty_html())
 
     for p in papers:
-        # rate = get_stars(p.score)
-        rate = round(p.score, 1) if p.score is not None else "Unknown"
+        rate = f"{p.score:.1f} / 10" if p.score is not None else "Unknown"
+
         author_list = [a for a in p.authors]
         num_authors = len(author_list)
         if num_authors <= 5:
@@ -130,7 +147,8 @@ def render_email(papers: list[Paper]) -> str:
                 affiliations += ", ..."
         else:
             affiliations = "Unknown Affiliation"
-        parts.append(get_block_html(p.title, authors, rate, p.tldr, p.pdf_url, affiliations))
+        matched_ref_title = p.matched_reference.title if p.matched_reference is not None else None
+        parts.append(get_block_html(p.title, authors, rate, p.tldr, p.pdf_url, affiliations, matched_ref_title))
 
     content = "<br>" + "</br><br>".join(parts) + "</br>"
     return framework.replace("__CONTENT__", content)

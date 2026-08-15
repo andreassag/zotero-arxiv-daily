@@ -18,3 +18,4 @@ models
 test-compose.yml
 outputs
 config/private.yaml
+email_output.html

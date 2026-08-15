@@ -138,20 +138,37 @@ llm:
     model: ???
   language: English # Preferred language for the TL;DR. Example: English
 
+screener:
+  key: ${llm.api.key} # API Key for embedding model API. Defaults to LLM API key.
+  base_url: ${llm.api.base_url} # API URL for embedding model API. Defaults to LLM API URL.
+  model: text-embedding-3-large # Embedding model name. Example: text-embedding-3-large or Qwen/Qwen3-Embedding-8B
+  batch_size: 64 # Batch size for embedding API requests.
+  screen_top_k: 50 # Number of preprints to screen in Stage 1 and pass to Stage 2
+  knn_k: 3 # Number of nearest Zotero neighbors to aggregate per candidate
+  half_life_days: 180 # Exponential recency decay half-life in days for Zotero paper added date
+
 reranker:
-  api:
-    key: null # API Key of your embedding model API. Example: sk-xxx
-    base_url: null # API URL of your embedding model API. Example: https://api.openai.com/v1
-    model: null # The model name of the embedding model. Example: text-embedding-3-large
-    batch_size: null # The batch size for embedding API requests. Adjust to match your provider's limit. Example: 64
+  enabled: true # Set to false to disable Stage 2 cross-encoder reranking
+  key: ${llm.api.key} # API Key for reranker API. Defaults to LLM API key.
+  base_url: ${llm.api.base_url} # API URL for reranker API. Defaults to LLM API URL.
+  model: Qwen/Qwen3-Reranker-8B # Reranker model name (e.g. via SiliconFlow / standard /v1/rerank API)
+  blend_weight: 0.7 # Weight for Stage 2 Cross-Encoder score (0.7 CE + 0.3 Bi-Encoder)
+  research_interest: null # Optional manual string override for research interest query
 
 executor:
   debug: false # Whether to use debug mode. Example: true
   send_empty: false # Whether to send an empty email even if no new papers today. Example: true
-  max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
-  source: ??? # The sources of papers to retrieve. Example: ['arxiv','biorxiv','medrxiv']
-  reranker: api # The reranker to use. Example: 'api'
+  max_paper_num: 10 # The maximum number of papers presented in the email. Example: 10
+  source: null # The sources of papers to retrieve (auto-detected if null). Example: ['arxiv','biorxiv','medrxiv']
+  tokenizer_type: qwen # Tokenizer used for token tracking: 'qwen' or 'gpt4'
 ```
+
+### ⚡ Two-Stage Retrieval & Reranking Pipeline
+1. **Stage 1 (KNN Dense Screener)**: Rapidly screens hundreds of daily preprints using bi-encoder embedding cosine similarity with Top-K Nearest Neighbors ($K=3$) and exponential recency decay ($2^{-\text{age}/\text{half\_life}}$) against your Zotero library, selecting the top candidates and recording their best-matched reference paper.
+2. **Stage 2 (Target-Aware Cross-Encoder Reranker)**: Cross-encodes each candidate preprint directly against its specific matched Zotero reference paper using full natural language text (`Title + Abstract`), ensuring deep semantic understanding and context preservation.
+3. **Calibrated Score Blending & Explainability**: Blends the Cross-Encoder score with the dense embedding score on a 0.0–10.0 scale, and displays a subtle `Matched reference` line in the daily email for transparency.
+
+
 
 That's all! Now you can test the workflow by manually triggering it:
 ![test](./assets/test.png)

@@ -4,7 +4,7 @@ import feedparser
 import pytest
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_feedparser(monkeypatch):
     """Patch feedparser.parse to return the local RSS fixture for arXiv URLs.
 
@@ -28,11 +28,13 @@ def mock_feedparser(monkeypatch):
     return parsed
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_biorxiv_api(monkeypatch):
     """Patch requests.get to return the canned bioRxiv API response."""
-    import requests
+    import json
     from types import SimpleNamespace
+
+    import requests
 
     from tests.canned_responses import SAMPLE_BIORXIV_API_RESPONSE
 
@@ -42,9 +44,11 @@ def mock_biorxiv_api(monkeypatch):
         if "api.biorxiv.org" in url:
             resp = SimpleNamespace()
             resp.status_code = 200
+            resp.text = json.dumps(SAMPLE_BIORXIV_API_RESPONSE)
             resp.json = lambda: SAMPLE_BIORXIV_API_RESPONSE
             resp.raise_for_status = lambda: None
             return resp
         return original_get(url, **kwargs)
 
     monkeypatch.setattr(requests, "get", _patched)
+

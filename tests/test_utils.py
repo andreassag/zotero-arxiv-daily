@@ -1,13 +1,42 @@
 """Tests for zotero_arxiv_daily.utils: glob_match, send_email, tex extraction."""
 
+import io
 import smtplib
 import tarfile
-import io
+from datetime import UTC, datetime
 
 import pytest
 
-from zotero_arxiv_daily.utils import glob_match, send_email, extract_tex_code_from_tar, _bm25_pick
 from tests.canned_responses import make_stub_smtp
+from zotero_arxiv_daily.protocol import CorpusPaper
+from zotero_arxiv_daily.utils import (
+    _bm25_pick,
+    extract_recency_weighted_keywords,
+    extract_tex_code_from_tar,
+    glob_match,
+    send_email,
+)
+
+
+def test_extract_recency_weighted_keywords():
+    now = datetime.now(UTC)
+    corpus = [
+        CorpusPaper(
+            title="CRISPR Gene Editing in Yeast",
+            abstract="Synthetic biology genetic circuits for gene expression control",
+            added_date=now,
+            paths=[],
+        ),
+        CorpusPaper(
+            title="Neural Networks for Computer Vision",
+            abstract="Deep learning image classification convolutional models",
+            added_date=now,
+            paths=[],
+        ),
+    ]
+    keywords = extract_recency_weighted_keywords(corpus, top_n=5)
+    assert len(keywords) > 0
+    assert any("crispr" in k or "synthetic" in k or "gene" in k for k in keywords)
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +171,7 @@ def test_send_email_falls_back_to_ssl(config, monkeypatch):
     class StubSMTP_TLS_Fails:
         def __init__(self, *a, **kw):
             call_count["smtp"] += 1
+
         def starttls(self):
             raise OSError("TLS not supported")
 
@@ -167,12 +197,16 @@ def test_send_email_falls_back_to_plain(config, monkeypatch):
                 pass  # first SMTP() call succeeds, but starttls will fail
             else:
                 pass  # third SMTP() call is the plain fallback
+
         def starttls(self):
             raise OSError("TLS not supported")
+
         def login(self, u, p):
             pass
+
         def sendmail(self, s, r, m):
             sent.append((s, r, m))
+
         def quit(self):
             pass
 
@@ -191,7 +225,7 @@ def test_send_email_falls_back_to_plain(config, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_tar(tmp_path):
     """Create a tar file with given files, auto-cleaned by tmp_path."""
 
@@ -218,11 +252,13 @@ def test_extract_tex_single_file(make_tar):
 
 
 def test_extract_tex_with_input_resolution(make_tar):
-    path = make_tar({
-        "main.tex": "\\begin{document}\n\\input{intro}\n\\end{document}",
-        "main.bbl": "",
-        "intro.tex": "This is the introduction.",
-    })
+    path = make_tar(
+        {
+            "main.tex": "\\begin{document}\n\\input{intro}\n\\end{document}",
+            "main.bbl": "",
+            "intro.tex": "This is the introduction.",
+        }
+    )
     result = extract_tex_code_from_tar(path, "test-paper")
     assert "This is the introduction." in result["all"]
 
@@ -241,10 +277,12 @@ def test_extract_tex_not_a_tar(tmp_path):
 
 
 def test_extract_tex_multiple_tex_no_bbl(make_tar):
-    path = make_tar({
-        "a.tex": "\\section{A}",
-        "b.tex": "\\begin{document}\nMain content\n\\end{document}",
-    })
+    path = make_tar(
+        {
+            "a.tex": "\\section{A}",
+            "b.tex": "\\begin{document}\nMain content\n\\end{document}",
+        }
+    )
     result = extract_tex_code_from_tar(path, "test-paper")
     assert result is not None
     assert "Main content" in result["all"]
@@ -252,10 +290,12 @@ def test_extract_tex_multiple_tex_no_bbl(make_tar):
 
 def test_extract_tex_multiple_document_blocks_bm25(make_tar):
     """When multiple tex files contain \\begin{document}, BM25 picks the one matching paper_title."""
-    path = make_tar({
-        "appendix.tex": "\\begin{document}\n\\title{Supplementary Material}\nAppendix stuff\n\\end{document}",
-        "main.tex": "\\begin{document}\n\\title{Quantum Entanglement in Neural Networks}\nReal content here\n\\end{document}",
-    })
+    path = make_tar(
+        {
+            "appendix.tex": "\\begin{document}\n\\title{Supplementary Material}\nAppendix stuff\n\\end{document}",
+            "main.tex": "\\begin{document}\n\\title{Quantum Entanglement in Neural Networks}\nReal content here\n\\end{document}",
+        }
+    )
     result = extract_tex_code_from_tar(path, "test-paper", paper_title="Quantum Entanglement in Neural Networks")
     assert result is not None
     assert "Real content here" in result["all"]
@@ -263,10 +303,12 @@ def test_extract_tex_multiple_document_blocks_bm25(make_tar):
 
 def test_extract_tex_multiple_document_blocks_no_title(make_tar):
     """Without paper_title, falls back to the first candidate."""
-    path = make_tar({
-        "a.tex": "\\begin{document}\nFirst doc\n\\end{document}",
-        "b.tex": "\\begin{document}\nSecond doc\n\\end{document}",
-    })
+    path = make_tar(
+        {
+            "a.tex": "\\begin{document}\nFirst doc\n\\end{document}",
+            "b.tex": "\\begin{document}\nSecond doc\n\\end{document}",
+        }
+    )
     result = extract_tex_code_from_tar(path, "test-paper")
     assert result is not None
     assert result["all"] is not None

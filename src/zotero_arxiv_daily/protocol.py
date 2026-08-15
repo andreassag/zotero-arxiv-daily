@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import re
 from dataclasses import dataclass
@@ -12,6 +14,9 @@ from .utils import add_tldr_tokens, count_tokens
 
 RawPaperItem = TypeVar("RawPaperItem")
 
+_ENC_O200K = tiktoken.get_encoding("o200k_base")
+_ENC_GPT4O = tiktoken.encoding_for_model("gpt-4o")
+
 
 @dataclass
 class Paper:
@@ -25,6 +30,9 @@ class Paper:
     tldr: str | None = None
     affiliations: list[str] | None = None
     score: float | None = None
+    screener_score: float | None = None
+    matched_reference: CorpusPaper | None = None
+    matched_reference_score: float = 0.0
 
     def _generate_tldr_with_llm(self, openai_client: OpenAI, llm_params: dict, tokenizer_type: str = "qwen") -> str:
         lang = llm_params.get("language", "English")
@@ -47,9 +55,9 @@ class Paper:
             generation_kwargs["max_tokens"] = 150
 
         if tokenizer_type == "qwen":
-            enc = tiktoken.get_encoding("o200k_base")
+            enc = _ENC_O200K
         else:
-            enc = tiktoken.encoding_for_model("gpt-4o")
+            enc = _ENC_GPT4O
 
         prompt = prompt.strip().replace("\n\n", "\n")
         prompt_tokens = enc.encode(prompt)
@@ -92,8 +100,7 @@ class Paper:
     def _generate_affiliations_with_llm(self, openai_client: OpenAI, llm_params: dict) -> list[str] | None:
         if self.full_text is not None:
             prompt = f"Given the beginning of a paper, extract the affiliations of the authors in a python list format, which is sorted by the author order. If there is no affiliation found, return an empty list '[]':\n\n{self.full_text}"
-            # use gpt-4o tokenizer for estimation
-            enc = tiktoken.encoding_for_model("gpt-4o")
+            enc = _ENC_GPT4O
             prompt_tokens = enc.encode(prompt)
             prompt_tokens = prompt_tokens[:2000]  # truncate to 2000 tokens
             prompt = enc.decode(prompt_tokens)
