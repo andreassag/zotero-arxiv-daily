@@ -99,11 +99,7 @@ def test_affiliations_malformed_llm_output(llm_params):
             ]
         )
 
-    client = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=create_no_brackets)
-        )
-    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create_no_brackets)))
     paper = make_sample_paper()
     result = paper.generate_affiliations(client, llm_params)
     # re.search for [...] will fail -> AttributeError -> caught -> returns None
@@ -122,3 +118,50 @@ def test_affiliations_error_returns_none(llm_params):
     result = paper.generate_affiliations(broken_client, llm_params)
     assert result is None
     assert paper.affiliations is None
+
+
+def test_tldr_and_affiliations_with_rate_limiter(llm_params):
+    from zotero_arxiv_daily.rate_limiter import RateLimiter
+
+    limiter = RateLimiter(rpm=10, tpm=10000, rpd=100, name="TestLimiter")
+    client = make_stub_openai_client()
+    paper = make_sample_paper()
+    tldr = paper.generate_tldr(client, llm_params, rate_limiter=limiter)
+    affs = paper.generate_affiliations(client, llm_params, rate_limiter=limiter)
+    assert tldr == "Hello! How can I assist you today?"
+    assert len(affs) == 2
+    assert len(limiter._minute_requests) == 2
+
+
+def test_affiliations_single_quoted_python_list(llm_params):
+    """LLM returns Python single-quoted list ['Univ A', 'Univ B']."""
+    from types import SimpleNamespace
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kw: SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="['University of Cambridge', 'MIT']"))]
+                )
+            )
+        )
+    )
+    paper = make_sample_paper()
+    result = paper.generate_affiliations(client, llm_params)
+    assert result == ["University of Cambridge", "MIT"]
+
+
+def test_affiliations_empty_brackets(llm_params):
+    """LLM returns empty brackets []."""
+    from types import SimpleNamespace
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kw: SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="[]"))])
+            )
+        )
+    )
+    paper = make_sample_paper()
+    result = paper.generate_affiliations(client, llm_params)
+    assert result is None

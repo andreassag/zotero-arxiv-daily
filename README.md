@@ -56,50 +56,60 @@
 2. Set Github Action environment variables.
 ![secrets](./assets/secrets.png)
 
-Below are all the secrets you need to set. They are invisible to anyone including you once they are set, for security.
+Below are the secret keys you can configure in GitHub Actions or in your `.env` file:
 
-| Key |Description | Example |
-| :---  | :---  | :--- |
-| ZOTERO_ID  | User ID of your Zotero account. **User ID is not your username, but a sequence of numbers**Get your ID from [here](https://www.zotero.org/settings/security). You can find it at the position shown in this [screenshot](https://github.com/TideDra/zotero-arxiv-daily/blob/main/assets/userid.png). | 12345678  |
-| ZOTERO_KEY | An Zotero API key with read access. Get a key from [here](https://www.zotero.org/settings/security).  | AB5tZ877P2j7Sm2Mragq041H   |
-| SENDER | The email account of the SMTP server that sends you email. | abc@qq.com |
-| SENDER_PASSWORD | The password of the sender account. Note that it's not necessarily the password for logging in the e-mail client, but the authentication code for SMTP service. Ask your email provider for this.   | abcdefghijklmn |
-| RECEIVER | The e-mail address that receives the paper list. | abc@outlook.com |
-| OPENAI_API_KEY | API Key when using the API to access LLMs. You can get FREE API for using advanced open source LLMs in [SiliconFlow](https://cloud.siliconflow.cn/i/b3XhBRAm). | sk-xxx |
-| OPENAI_API_BASE | API URL when using the API to access LLMs. | https://api.siliconflow.cn/v1 |
+| Key | Description | Example |
+| :--- | :--- | :--- |
+| `ZOTERO_ID` | User ID of your Zotero account (a sequence of numbers from [Zotero Settings](https://www.zotero.org/settings/keys)). | `12345678` |
+| `ZOTERO_KEY` | A Zotero API key with library read access from [Zotero Settings](https://www.zotero.org/settings/keys). | `AB5tZ877P2j7Sm2Mragq041H` |
+| `SMTP_SERVER` | The SMTP server hostname. | `smtp.gmail.com` or `smtp.tem.scaleway.com` |
+| `SMTP_PORT` | The SMTP port (465 for SSL, 587 for TLS). | `465` |
+| `SMTP_USER` | The SMTP authentication username (often same as sender). | `sender@example.com` |
+| `SMTP_PASSWORD` | The SMTP password or application password. | `abcdefghijklmn` |
+| `SMTP_SENDER` | The sender email address. | `sender@example.com` |
+| `SMTP_RECEIVER` | The email address that receives the daily paper digest. | `receiver@example.com` |
+| `LLM_API_KEY` | API Key for LLM summarization. Get a FREE API key from [Google AI Studio](https://aistudio.google.com/app/apikey). | `AIzaSy...` |
+| `LLM_BASE_URL` | Base URL of LLM API. Defaults to Google Gemini OpenAI-compatible endpoint. | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `LLM_MODEL` | LLM model identifier. Defaults to `gemini-2.5-flash`. | `gemini-2.5-flash` |
 
-Then you should also set a public variable `CUSTOM_CONFIG` for your custom configuration.
+All options in `config/` can be configured directly through `.env` environment variables without editing YAML files. You can optionally set a public GitHub Actions variable `CUSTOM_CONFIG` to override settings:
 ![vars](./assets/repo_var.png)
 ![custom_config](./assets/config_var.png)
-Paste the following content into the value of `CUSTOM_CONFIG` variable:
+
 ```yaml
 zotero:
   user_id: ${oc.env:ZOTERO_ID}
   api_key: ${oc.env:ZOTERO_KEY}
-  include_path: null # Or e.g. ["2026/survey/**", "2026/reading-group/**"]
+  include_path: ${oc.decode:${oc.env:ZOTERO_INCLUDE_PATH,null}}
+  ignore_path: ${oc.decode:${oc.env:ZOTERO_IGNORE_PATH,null}}
 
 email:
-  sender: ${oc.env:SENDER}
-  receiver: ${oc.env:RECEIVER}
-  smtp_server: smtp.qq.com
-  smtp_port: 465
-  sender_password: ${oc.env:SENDER_PASSWORD}
+  sender: ${oc.env:SMTP_SENDER}
+  receiver: ${oc.env:SMTP_RECEIVER}
+  smtp_server: ${oc.env:SMTP_SERVER}
+  smtp_port: ${oc.decode:${oc.env:SMTP_PORT,465}}
+  sender_password: ${oc.env:SMTP_PASSWORD}
+  smtp_user: ${oc.env:SMTP_USER,${email.sender}}
 
 llm:
   api:
-    key: ${oc.env:OPENAI_API_KEY}
-    base_url: ${oc.env:OPENAI_API_BASE}
+    key: ${oc.env:LLM_API_KEY}
+    base_url: ${oc.env:LLM_BASE_URL,https://generativelanguage.googleapis.com/v1beta/openai/}
   generation_kwargs:
-    model: gpt-4o-mini
+    model: ${oc.env:LLM_MODEL,gemini-2.5-flash}
+    max_tokens: ${oc.decode:${oc.env:LLM_MAX_TOKENS,16384}}
+  language: ${oc.env:LLM_LANGUAGE,English}
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
-    include_cross_list: false # Set to true to include arXiv cross-list papers in these categories.
+    category: ${oc.decode:${oc.env:ARXIV_CATEGORIES,['cs.AI','cs.CV','cs.LG','cs.CL']}}
+    include_cross_list: ${oc.decode:${oc.env:INCLUDE_CROSS_LIST,false}}
 
 executor:
-  debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
+  debug: ${oc.decode:${oc.env:DEBUG,false}}
+  max_paper_num: ${oc.decode:${oc.env:MAX_PAPER_NUM,100}}
+  source: ${oc.decode:${oc.env:EXECUTOR_SOURCES,['arxiv']}}
+  reranker: ${oc.env:RERANKER_TYPE,local}
 ```
 Set `source.arxiv.include_cross_list: true` if you want cross-listed papers included.
 >[!NOTE]
@@ -109,54 +119,55 @@ Here is the full configuration, `???` means the value must be filled in:
 ```yaml
 zotero:
   user_id: ??? # User ID of your Zotero account.
-  api_key: ??? # An Zotero API key with read access.
+  api_key: ??? # A Zotero API key with read access.
   include_path: null # A list of glob patterns marking the Zotero collections that should be included. Example: ["2026/survey/**", "2026/reading-group/**"]
 
 source:
   arxiv:
-    category: null # The categories of target arxiv papers. Find the abbr of your research area from [here](https://arxiv.org/category_taxonomy). Example: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+    category: null # The categories of target arxiv papers. Example: ["cs.AI","cs.CV","cs.LG","cs.CL"]
     include_cross_list: false # Whether to include arXiv cross-list papers in subscribed categories. Example: true
   biorxiv:
-    category: null # The categories of target biorxiv papers. Find categories from [here](https://www.biorxiv.org/). Example: ["biochemistry","animal behavior and cognition"]
+    category: null # The categories of target biorxiv papers. Example: ["biochemistry","animal behavior and cognition"]
   medrxiv:
-    category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
+    category: null # The categories of target medrxiv papers. Example: ["psychiatry and clinical psychology", "neurology"]
 
 email:
-  sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com
-  receiver: ??? # The email account that receives the paper list. Example: abc@outlook.com
-  smtp_server: ??? # The SMTP server that sends the email. Ask your email provider (Gmail, QQ, Outlook, ...) for its SMTP server. Example: smtp.qq.com
-  smtp_port: ??? # The port of SMTP server. Example: 465
-  sender_password: ??? # The password of the sender account. Note that it's not necessarily the password for logging in the e-mail client, but the authentication code for SMTP service. Ask your email provider for this. Example: abcdefghijklmn
+  sender: ??? # The email address that sends the digest. Example: sender@example.com
+  receiver: ??? # The email address that receives the paper list. Example: receiver@example.com
+  smtp_server: ??? # The SMTP server address. Example: smtp.gmail.com or smtp.tem.scaleway.com
+  smtp_port: 465 # The port of SMTP server. Example: 465 or 587
+  sender_password: ??? # The password or app token for the SMTP service.
+  smtp_user: ${email.sender} # Optional SMTP login username. Defaults to sender if not explicitly set.
 
 llm:
   api:
-    key: ??? # API Key of your LLM API. Example: sk-xxx
-    base_url: ??? # API URL of your LLM API. Example: https://api.openai.com/v1
+    key: ??? # API Key of your LLM provider.
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/ # API base URL of LLM API.
   generation_kwargs:
-  # Arguments for the LLM API. See [here](https://platform.openai.com/docs/api-reference/chat/create) for more details.
     max_tokens: 16384
-    model: ???
+    model: gemini-2.5-flash # Model name. Example: gemini-2.5-flash, gemini-2.0-flash, gpt-4o-mini
   language: English # Preferred language for the TL;DR. Example: English
+  rate_limit:
+    rpm: 15
+    tpm: 250000
+    rpd: 500
 
 reranker:
-  local:
-    model: jinaai/jina-embeddings-v5-text-nano # The Hugging Face model name of the local embedding model. Example: jinaai/jina-embeddings-v5-text-nano
-    encode_kwargs:
-    # The kwargs for the encode method of the local embedding model. Details see [here](https://www.sbert.net/docs/package_reference/SentenceTransformer.html#sentence_transformers.SentenceTransformer.encode)
-      task: retrieval
-      prompt_name: document
   api:
-    key: null # API Key of your embedding model API. Example: sk-xxx
-    base_url: null # API URL of your embedding model API. Example: https://api.openai.com/v1
-    model: null # The model name of the embedding model. Example: text-embedding-3-large
-    batch_size: null # The batch size for embedding API requests. Adjust to match your provider's limit. Example: 64
+    key: ${llm.api.key} # API Key for embedding model (defaults to LLM API key).
+    base_url: ${llm.api.base_url} # API base URL for embedding endpoint.
+    model: text-embedding-004 # The model name of the embedding model. Example: text-embedding-004
+    batch_size: 32 # The batch size for embedding API requests.
+  rate_limit:
+    rpm: 100
+    tpm: 30000
+    rpd: 1000
 
 executor:
   debug: false # Whether to use debug mode. Example: true
   send_empty: false # Whether to send an empty email even if no new papers today. Example: true
-  max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
-  source: ??? # The sources of papers to retrieve. Example: ['arxiv','biorxiv','medrxiv']
-  reranker: local # The reranker to use. Example: 'local' or 'api'
+  max_paper_num: 100 # The maximum number of papers presented in the email. Example: 100
+  source: ["arxiv"] # The sources of papers to retrieve. Example: ['arxiv']
 ```
 
 That's all! Now you can test the workflow by manually triggering it:

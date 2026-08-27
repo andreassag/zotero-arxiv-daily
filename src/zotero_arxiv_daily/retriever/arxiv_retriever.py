@@ -1,18 +1,20 @@
-from .base import BaseRetriever, register_retriever
-import arxiv
-from arxiv import Result as ArxivResult
-from ..protocol import Paper
-from ..utils import extract_markdown_from_pdf, extract_tex_code_from_tar
-from tempfile import TemporaryDirectory
-import feedparser
-from tqdm import tqdm
 import multiprocessing
 import os
 from queue import Empty
+from tempfile import TemporaryDirectory
 from time import sleep
 from typing import Any, Callable, TypeVar
-from loguru import logger
+
+import arxiv
+import feedparser
 import requests
+from arxiv import Result as ArxivResult
+from loguru import logger
+from tqdm import tqdm
+
+from ..protocol import Paper
+from ..utils import extract_markdown_from_pdf, extract_tex_code_from_tar
+from .base import BaseRetriever, register_retriever
 
 T = TypeVar("T")
 
@@ -85,24 +87,32 @@ def _extract_text_from_pdf_worker(pdf_url: str) -> str:
 
 
 def _extract_text_from_html_worker(html_url: str) -> str | None:
+    import logging
+
     import trafilatura
 
-    downloaded = trafilatura.fetch_url(html_url)
-    if downloaded is None:
-        raise ValueError(f"Failed to download HTML from {html_url}")
-    text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-    if not text:
-        raise ValueError(f"No text extracted from {html_url}")
-    return text
+    logging.getLogger("trafilatura").setLevel(logging.CRITICAL)
+
+    try:
+        downloaded = trafilatura.fetch_url(html_url)
+        if downloaded is None:
+            return None
+        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        return text or None
+    except Exception:
+        return None
 
 
 def _extract_text_from_tar_worker(source_url: str, paper_id: str, paper_title: str | None = None) -> str | None:
     with TemporaryDirectory() as temp_dir:
         path = os.path.join(temp_dir, "paper.tar.gz")
-        _download_file(source_url, path)
+        try:
+            _download_file(source_url, path)
+        except Exception:
+            return None
         file_contents = extract_tex_code_from_tar(path, paper_id, paper_title=paper_title)
-        if not file_contents or "all" not in file_contents:
-            raise ValueError("Main tex file not found.")
+        if not file_contents or "all" not in file_contents or not file_contents["all"]:
+            return None
         return file_contents["all"]
 
 
@@ -115,11 +125,11 @@ class ArxivRetriever(BaseRetriever):
 
     def _retrieve_raw_papers(self) -> list[ArxivResult]:
         client = arxiv.Client(num_retries=10, delay_seconds=10)
-        query = '+'.join(self.config.source.arxiv.category)
+        query = "+".join(self.config.source.arxiv.category)
         include_cross_list = self.config.source.arxiv.get("include_cross_list", False)
         # Get the latest paper from arxiv rss feed
         feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
-        if 'Feed error for query' in feed.feed.title:
+        if "Feed error for query" in feed.feed.title:
             raise Exception(f"Invalid ARXIV_QUERY: {query}.")
         raw_papers = []
         allowed_announce_types = {"new", "cross"} if include_cross_list else {"new"}
@@ -136,7 +146,7 @@ class ArxivRetriever(BaseRetriever):
         max_batch_retries = 5
         batch_retry_delay = 30
         for i in range(0, len(all_paper_ids), 20):
-            search = arxiv.Search(id_list=all_paper_ids[i:i + 20])
+            search = arxiv.Search(id_list=all_paper_ids[i : i + 20])
             for attempt in range(max_batch_retries):
                 try:
                     batch = list(client.results(search))
@@ -146,7 +156,9 @@ class ArxivRetriever(BaseRetriever):
                 except arxiv.HTTPError as exc:
                     if exc.status == 429 and attempt < max_batch_retries - 1:
                         wait = batch_retry_delay * (attempt + 1)
-                        logger.warning(f"arXiv API 429 on batch {i // 20}, retry {attempt + 1}/{max_batch_retries} in {wait}s")
+                        logger.warning(
+                            f"arXiv API 429 on batch {i // 20}, retry {attempt + 1}/{max_batch_retries} in {wait}s"
+                        )
                         sleep(wait)
                     else:
                         raise
@@ -166,6 +178,8 @@ class ArxivRetriever(BaseRetriever):
             full_text = extract_text_from_html(raw_paper)
         if full_text is None:
             full_text = extract_text_from_pdf(raw_paper)
+        if full_text is None:
+            logger.debug(f"Full text unavailable for '{title}', falling back to abstract.")
         return Paper(
             source=self.name,
             title=title,
@@ -182,13 +196,13 @@ def extract_text_from_html(paper: ArxivResult) -> str | None:
     try:
         return _extract_text_from_html_worker(html_url)
     except Exception as exc:
-        logger.warning(f"HTML extraction failed for {paper.title}: {exc}")
+        logger.debug(f"HTML extraction failed for {paper.title}: {exc}")
         return None
 
 
 def extract_text_from_pdf(paper: ArxivResult) -> str | None:
     if paper.pdf_url is None:
-        logger.warning(f"No PDF URL available for {paper.title}")
+        logger.debug(f"No PDF URL available for {paper.title}")
         return None
     return _run_with_hard_timeout(
         _extract_text_from_pdf_worker,
@@ -202,7 +216,7 @@ def extract_text_from_pdf(paper: ArxivResult) -> str | None:
 def extract_text_from_tar(paper: ArxivResult) -> str | None:
     source_url = paper.source_url()
     if source_url is None:
-        logger.warning(f"No source URL available for {paper.title}")
+        logger.debug(f"No source URL available for {paper.title}")
         return None
     return _run_with_hard_timeout(
         _extract_text_from_tar_worker,

@@ -1,2 +1,4 @@
-from .base import get_reranker_cls
-from . import local, api
+from .api import ApiReranker
+from .base import BaseReranker
+
+__all__ = ["ApiReranker", "BaseReranker"]

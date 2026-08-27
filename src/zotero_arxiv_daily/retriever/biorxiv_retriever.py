@@ -1,9 +1,12 @@
-import requests
-from .base import BaseRetriever, register_retriever
-from ..protocol import Paper
-from loguru import logger
-from typing import Any
 from time import sleep
+from typing import Any
+
+import requests
+from loguru import logger
+
+from ..protocol import Paper
+from .base import BaseRetriever, register_retriever
+
 
 @register_retriever("biorxiv")
 class BiorxivRetriever(BaseRetriever):
@@ -30,26 +33,25 @@ class BiorxivRetriever(BaseRetriever):
                     logger.warning(f"Failed to retrieve papers: {str(e)}. Retry in {delay_time} seconds.")
                     sleep(delay_time)
         result = response.json()
-        collection = result['collection']
+        collection = result["collection"]
         if len(collection) == 0:
             logger.warning(f"No paper found. API Message: {result['messages']}")
             return []
-        all_dates = set(c['date'] for c in collection)
+        all_dates = set(c["date"] for c in collection)
         latest_date = sorted(all_dates)[-1]
-        collection = [c for c in collection if c['date'] == latest_date]
+        collection = [c for c in collection if c["date"] == latest_date]
         categories = [c.lower() for c in self.retriever_config.category]
-        collection = [c for c in collection if c['category'] in categories]
+        collection = [c for c in collection if c["category"] in categories]
         if self.config.executor.debug:
             collection = collection[:10]
         return collection
 
-
-    def convert_to_paper(self, raw_paper:dict[str, Any]) -> Paper | None:
-        title = raw_paper['title']
-        authors = [a.strip() for a in raw_paper['authors'].split(';')]
-        abstract = raw_paper['abstract']
+    def convert_to_paper(self, raw_paper: dict[str, Any]) -> Paper | None:
+        title = raw_paper["title"]
+        authors = [a.strip() for a in raw_paper["authors"].split(";")]
+        abstract = raw_paper["abstract"]
         pdf_url = f"https://www.{self.server}.org/content/{raw_paper['doi']}v{raw_paper['version']}.full.pdf"
-        full_text = None # biorxiv forbids scraping its pdf
+        full_text = None  # biorxiv forbids scraping its pdf
         return Paper(
             source=self.name,
             title=title,
@@ -57,5 +59,5 @@ class BiorxivRetriever(BaseRetriever):
             abstract=abstract,
             url=pdf_url,
             pdf_url=pdf_url,
-            full_text=full_text
+            full_text=full_text,
         )

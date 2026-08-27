@@ -4,11 +4,11 @@ All mocking uses pytest monkeypatch + SimpleNamespace. No unittest.mock.
 """
 
 import copy
+from pathlib import Path
 
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from pathlib import Path
 
 _CONFIG_DIR = str(Path(__file__).resolve().parent.parent / "config")
 
@@ -33,6 +33,7 @@ def _base_config():
                 "email.smtp_server=localhost",
                 "email.smtp_port=1025",
                 "email.sender_password=test",
+                "email.smtp_username=test@example.com",
                 "llm.api.key=sk-fake",
                 "llm.api.base_url=http://localhost:30000/v1",
                 "llm.generation_kwargs.model=gpt-4o-mini",
@@ -41,7 +42,6 @@ def _base_config():
                 "reranker.api.model=text-embedding-3-large",
                 "source.arxiv.category=[cs.AI,cs.CV]",
                 "executor.source=[arxiv]",
-                "executor.reranker=api",
                 "executor.debug=false",
                 "executor.send_empty=false",
             ],

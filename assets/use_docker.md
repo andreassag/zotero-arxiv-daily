@@ -31,27 +31,25 @@ mkdir -p logs models
 
 4. Edit the `docker-compose.yml` file to configure your environment variables:
 ```yaml
-environment:
     environment:
-      # 必填参数（示例值）
-      - ZOTERO_ID=1234567
+      # Required parameters
+      - ZOTERO_ID=12345678
       - ZOTERO_KEY=AbCdEfGhIjKlMnOpQrStUvWx
       - SMTP_SERVER=smtp.example.com
       - SMTP_PORT=465
-      - SENDER=your_email@example.com
-      - SENDER_PASSWORD=your_email_password
-      - RECEIVER=receiver_email@example.com
+      - SMTP_USER=your_email@example.com
+      - SMTP_PASSWORD=your_email_password
+      - SMTP_SENDER=your_email@example.com
+      - SMTP_RECEIVER=receiver_email@example.com
+      - LLM_API_KEY=your_google_gemini_api_key
 
-      # 可选参数（带默认值）
-      - ZOTERO_IGNORE=already_read_papers
-      - ARXIV_QUERY=cs.AI+cs.CV+cs.LG+cs.CL
-      - SEND_EMPTY=False
-      - MAX_PAPER_NUM=5
-      - USE_LLM_API=1
-      - OPENAI_API_KEY=sk-your-openai-key-here
-      - OPENAI_API_BASE=https://api.openai.com/v1
-      - MODEL_NAME=Qwen/Qwen1.5-7B-Instruct
-      - LANGUAGE=English
+      # Optional parameters
+      - LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+      - LLM_MODEL=gemini-2.5-flash
+      - LLM_LANGUAGE=English
+      - ARXIV_CATEGORIES=["cs.AI","cs.CV","cs.LG","cs.CL"]
+      - MAX_PAPER_NUM=10
+      - DEBUG=false
       
       # 新增配置
       - HF_ENDPOINT=https://hf-mirror.com
