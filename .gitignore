@@ -9,3 +9,4 @@ artifacts
 bin/
 coverage/
 dist/
+email_output.html
