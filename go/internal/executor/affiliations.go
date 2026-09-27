@@ -42,8 +42,8 @@ var (
 	// arXiv HTML affiliations (<span class="ltx_contact ltx_role_affiliation">)
 	arxivAffiliationRegex = regexp.MustCompile(`(?i)class=["'][^"']*ltx_role_affiliation[^"']*["'][^>]*>(?:<span[^>]*>[^<]*</span>)?([^<]+)`)
 
-	arxivIDRegex = regexp.MustCompile(`(?i)(?:arxiv\.org/(?:abs|pdf)/|oai:arXiv\.org:)?(\d{4}\.\d{4,5}(?:v\d+)?)`)
-	doiRegex     = regexp.MustCompile(`(?i)(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)`)
+	arxivPathRegex = regexp.MustCompile(`^/(?:abs|pdf|html)/(\d{4}\.\d{4,5}(?:v\d+)?)(?:\.pdf)?$`)
+	doiRegex       = regexp.MustCompile(`\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)`)
 )
 
 type openAlexInstitution struct {
@@ -114,12 +114,16 @@ func extractFromURL(ctx context.Context, httpClient *http.Client, pageURL, pdfUR
 	targetURL = strings.TrimSuffix(targetURL, ".pdf")
 
 	// If arXiv URL, check if HTML version is available
-	if strings.Contains(targetURL, "arxiv.org") {
-		if m := arxivIDRegex.FindStringSubmatch(targetURL); len(m) > 1 {
-			arxivHTMLURL := fmt.Sprintf("https://arxiv.org/html/%s", m[1])
-			affs, err := fetchAndParse(ctx, httpClient, arxivHTMLURL, parseArxivHTML)
-			if err == nil && len(affs) > 0 {
-				return affs, nil
+	if u, err := url.Parse(targetURL); err == nil {
+		host := strings.ToLower(u.Hostname())
+		if host == "arxiv.org" || host == "export.arxiv.org" {
+			cleanPath := strings.TrimSuffix(u.Path, ".pdf")
+			if m := arxivPathRegex.FindStringSubmatch(cleanPath); len(m) > 1 {
+				arxivHTMLURL := fmt.Sprintf("https://arxiv.org/html/%s", m[1])
+				affs, err := fetchAndParse(ctx, httpClient, arxivHTMLURL, parseArxivHTML)
+				if err == nil && len(affs) > 0 {
+					return affs, nil
+				}
 			}
 		}
 	}
