@@ -1,221 +1,205 @@
-<p align="center">
-  <a href="" rel="noopener">
- <img width=200px height=200px src="assets/logo.svg" alt="logo"></a>
-</p>
+# Zotero-arXiv-Daily
 
-<h3 align="center">Zotero-arXiv-Daily</h3>
+[![CI](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/ci.yml/badge.svg)](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/ci.yml)
+[![Gitleaks](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/gitleaks.yml)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 
-<div align="center">
-
-  [![Status](https://img.shields.io/badge/status-active-success.svg)]()
-  ![Stars](https://img.shields.io/github/stars/TideDra/zotero-arxiv-daily?style=flat)
-  [![GitHub Issues](https://img.shields.io/github/issues/TideDra/zotero-arxiv-daily)](https://github.com/TideDra/zotero-arxiv-daily/issues)
-  [![GitHub Pull Requests](https://img.shields.io/github/issues-pr/TideDra/zotero-arxiv-daily)](https://github.com/TideDra/zotero-arxiv-daily/pulls)
-  [![License](https://img.shields.io/github/license/TideDra/zotero-arxiv-daily)](/LICENSE)
-  [<img src="https://api.gitsponsors.com/api/badge/img?id=893025857" height="20">](https://api.gitsponsors.com/api/badge/link?p=PKMtRut1dWWuC1oFdJweyDSvJg454/GkdIx4IinvBblaX2AY4rQ7FYKAK1ZjApoiNhYEeduIEhfeZVIwoIVlvcwdJXVFD2nV2EE5j6lYXaT/RHrcsQbFl3aKe1F3hliP26OMayXOoZVDidl05wj+yg==)
-
-</div>
+**Zotero-arXiv-Daily** is an automated, high-performance Go application that delivers personalized daily research digests directly to your inbox. It synchronizes with your personal Zotero reference library, monitors preprint repositories, and uses semantic vector embeddings and LLMs to surface, rank, and summarize the papers most relevant to your research.
 
 ---
 
-<p align="center"> Recommend new arxiv papers of your interest daily according to your Zotero library.
-    <br> 
-</p>
+## Features
 
-> [!IMPORTANT]
-> Please keep an eye on this repo, and merge your forked repo in time when there is any update of this upstream, in order to enjoy new features and fix found bugs.
+- **Multi-Source Preprint Ingestion**: Monitors daily releases from **arXiv** (with category cross-listing support), **bioRxiv**, and **medRxiv**.
+- **Semantic Relevance Ranking**: Computes vector cosine similarity between newly published abstracts and your Zotero corpus (via Gemini or OpenAI-compatible embedding models), weighted by the recency of addition to your library.
+- **AI-Powered TL;DR Summaries**: Generates high-yield, structured paper summaries with LLMs (Google Gemini, OpenAI GPT-4o, DeepSeek, etc.).
+- **Built-in Rate Limiting**: Token-bucket rate limiters enforce requests-per-minute (RPM), tokens-per-minute (TPM), and requests-per-day (RPD) to eliminate API throttling and prevent account lockouts.
+- **Rich HTML Email Digest**: Formats abstracts with full Markdown rendering (proper formatting of italics, bolding, math symbols, and code), author affiliations (resolved via OpenAlex and bioRxiv APIs), direct PDF links, and linked code implementations.
+- **Fast, Native Go Engine**: Statically compiled binary with minimal memory footprint and zero external runtime dependencies.
+- **Automated CI/CD & Security**: Includes `govulncheck` vulnerability scanning, `gitleaks` secret detection, `golangci-lint` verification, and multi-platform packaging via `goreleaser`.
 
-## 🧐 About <a name = "about"></a>
+---
 
-> Track new scientific researches of your interest by just forking (and staring) this repo!😊
+## Architecture
 
-*Zotero-arXiv-Daily* finds arxiv papers that may attract you based on the context of your Zotero library, and then sends the result to your mailbox📮. It can be deployed as Github Action Workflow with **zero cost**, **no installation**, and **few configuration** of Github Action environment variables for daily **automatic** delivery.
+```mermaid
+flowchart LR
+    subgraph Input
+        A[Zotero Library]
+        B[arXiv / bioRxiv / medRxiv]
+    end
 
-## ✨ Features
-- Totally free! All the calculation can be done in the Github Action runner locally within its quota (for public repo).
-- AI-generated TL;DR for you to quickly pick up target papers.
-- Affiliations of the paper are resolved and presented.
-- Links of PDF and code implementation (if any) presented in the e-mail.
-- List of papers sorted by relevance with your recent research interest.
-- Fast deployment via fork this repo and set environment variables in the Github Action Page.
-- Support LLM API for generating TL;DR of papers.
-- Ignore unwanted Zotero papers using a list of glob patterns.
-- Support multiple sources of papers to retrieve:
-  - arxiv
-  - biorxiv
-  - medrxiv
+    subgraph Processing
+        C[Embedding Engine]
+        D[Recency-Weighted Similarity Ranking]
+        E[LLM Summarization & Rate Limiter]
+    end
 
-## 📷 Screenshot
-![screenshot](./assets/screenshot.png)
+    subgraph Output
+        F[HTML Email Digest / Artifacts]
+    end
 
-## 🚀 Usage
-### Quick Start
-1. Fork (and star😘) this repo.
-![fork](./assets/fork.png)
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+```
 
-2. Set Github Action environment variables.
-![secrets](./assets/secrets.png)
+1. **Sync**: Queries your Zotero library collections (with optional include/exclude glob path filtering) and fetches preprints released in the target window.
+2. **Embed & Score**: Generates semantic embeddings for paper abstracts and calculates recency-decay weighted similarity scores against your Zotero items.
+3. **Summarize**: Prompts an LLM under strict rate limits to generate concise TL;DR takeaways for the top candidate papers.
+4. **Deliver**: Builds a responsive HTML digest complete with resolved author affiliations and sends it via SMTP, or saves it locally when run in test mode.
 
-Below are all the secrets you need to set. They are invisible to anyone including you once they are set, for security.
+---
 
-| Key |Description | Example |
-| :---  | :---  | :--- |
-| ZOTERO_ID  | User ID of your Zotero account. **User ID is not your username, but a sequence of numbers**Get your ID from [here](https://www.zotero.org/settings/security). You can find it at the position shown in this [screenshot](https://github.com/TideDra/zotero-arxiv-daily/blob/main/assets/userid.png). | 12345678  |
-| ZOTERO_KEY | An Zotero API key with read access. Get a key from [here](https://www.zotero.org/settings/security).  | AB5tZ877P2j7Sm2Mragq041H   |
-| SENDER | The email account of the SMTP server that sends you email. | abc@qq.com |
-| SENDER_PASSWORD | The password of the sender account. Note that it's not necessarily the password for logging in the e-mail client, but the authentication code for SMTP service. Ask your email provider for this.   | abcdefghijklmn |
-| RECEIVER | The e-mail address that receives the paper list. | abc@outlook.com |
-| OPENAI_API_KEY | API Key when using the API to access LLMs. You can get FREE API for using advanced open source LLMs in [SiliconFlow](https://cloud.siliconflow.cn/i/b3XhBRAm). | sk-xxx |
-| OPENAI_API_BASE | API URL when using the API to access LLMs. | https://api.siliconflow.cn/v1 |
+## Quick Start (GitHub Actions)
 
-Then you should also set a public variable `CUSTOM_CONFIG` for your custom configuration.
-![vars](./assets/repo_var.png)
-![custom_config](./assets/config_var.png)
-Paste the following content into the value of `CUSTOM_CONFIG` variable:
+Deploy the digest as a scheduled GitHub Actions workflow with zero dedicated infrastructure.
+
+### 1. Configure Repository Secrets
+
+Add the following credentials under **Settings > Secrets and variables > Actions > Secrets**:
+
+| Secret | Description | Example |
+| :--- | :--- | :--- |
+| `ZOTERO_ID` | Numeric Zotero User ID ([Zotero API Settings](https://www.zotero.org/settings/keys)) | `12345678` |
+| `ZOTERO_KEY` | Zotero API key with read permissions | `AB5tZ877...` |
+| `SMTP_SERVER` | SMTP host of your email provider | `smtp.gmail.com` |
+| `SMTP_PORT` | SMTP port (`587` for STARTTLS or `465` for SSL) | `587` |
+| `SMTP_USERNAME` | SMTP authentication username / account email | `user@example.com` |
+| `SMTP_PASSWORD` | SMTP password or app-specific password | `xxxx-xxxx-xxxx` |
+| `SMTP_SENDER` | Sender email address | `digest@example.com` |
+| `SMTP_RECEIVER` | Destination email address | `you@example.com` |
+| `GEMINI_API_KEY` | API Key for LLM and Embedding models (or `LLM_API_KEY`) | `AIzaSy...` |
+
+### 2. Configure Settings
+
+Customize `config/config.yaml` or set the repository variable `CUSTOM_CONFIG`:
+
 ```yaml
 zotero:
   user_id: ${oc.env:ZOTERO_ID}
   api_key: ${oc.env:ZOTERO_KEY}
-  include_path: null # Or e.g. ["2026/survey/**", "2026/reading-group/**"]
-
-email:
-  sender: ${oc.env:SENDER}
-  receiver: ${oc.env:RECEIVER}
-  smtp_server: smtp.qq.com
-  smtp_port: 465
-  sender_password: ${oc.env:SENDER_PASSWORD}
-
-llm:
-  api:
-    key: ${oc.env:OPENAI_API_KEY}
-    base_url: ${oc.env:OPENAI_API_BASE}
-  generation_kwargs:
-    model: gpt-4o-mini
+  include_path: null # Filter collections: ["2026/survey/**", "reading-group/**"]
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
-    include_cross_list: false # Set to true to include arXiv cross-list papers in these categories.
-
-executor:
-  debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
-```
-Set `source.arxiv.include_cross_list: true` if you want cross-listed papers included.
->[!NOTE]
-> `${oc.env:XXX,yyy}` means the value of the environment variable `XXX`. If the variable is not set, the default value `yyy` will be used.
-
-Here is the full configuration, `???` means the value must be filled in:
-```yaml
-zotero:
-  user_id: ??? # User ID of your Zotero account.
-  api_key: ??? # An Zotero API key with read access.
-  include_path: null # A list of glob patterns marking the Zotero collections that should be included. Example: ["2026/survey/**", "2026/reading-group/**"]
-
-source:
-  arxiv:
-    category: null # The categories of target arxiv papers. Find the abbr of your research area from [here](https://arxiv.org/category_taxonomy). Example: ["cs.AI","cs.CV","cs.LG","cs.CL"]
-    include_cross_list: false # Whether to include arXiv cross-list papers in subscribed categories. Example: true
+    category: ["cs.AI", "cs.LG", "cs.CL", "cs.CV"]
+    include_cross_list: false
   biorxiv:
-    category: null # The categories of target biorxiv papers. Find categories from [here](https://www.biorxiv.org/). Example: ["biochemistry","animal behavior and cognition"]
+    category: ["bioinformatics", "genomics", "synthetic biology"]
   medrxiv:
-    category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
+    category: null
 
 email:
-  sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com
-  receiver: ??? # The email account that receives the paper list. Example: abc@outlook.com
-  smtp_server: ??? # The SMTP server that sends the email. Ask your email provider (Gmail, QQ, Outlook, ...) for its SMTP server. Example: smtp.qq.com
-  smtp_port: ??? # The port of SMTP server. Example: 465
-  sender_password: ??? # The password of the sender account. Note that it's not necessarily the password for logging in the e-mail client, but the authentication code for SMTP service. Ask your email provider for this. Example: abcdefghijklmn
+  sender: ${oc.env:SMTP_SENDER}
+  receiver: ${oc.env:SMTP_RECEIVER}
+  smtp_server: ${oc.env:SMTP_SERVER,smtp.gmail.com}
+  smtp_port: 587
+  smtp_username: ${oc.env:SMTP_USERNAME}
+  sender_password: ${oc.env:SMTP_PASSWORD}
 
 llm:
   api:
-    key: ??? # API Key of your LLM API. Example: sk-xxx
-    base_url: ??? # API URL of your LLM API. Example: https://api.openai.com/v1
+    key: ${oc.env:GEMINI_API_KEY}
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
   generation_kwargs:
-  # Arguments for the LLM API. See [here](https://platform.openai.com/docs/api-reference/chat/create) for more details.
-    max_tokens: 16384
-    model: ???
-  language: English # Preferred language for the TL;DR. Example: English
-
-screener:
-  key: ${llm.api.key} # API Key for embedding model API. Defaults to LLM API key.
-  base_url: ${llm.api.base_url} # API URL for embedding model API. Defaults to LLM API URL.
-  model: text-embedding-3-large # Embedding model name. Example: text-embedding-3-large or Qwen/Qwen3-Embedding-8B
-  batch_size: 64 # Batch size for embedding API requests.
-  screen_top_k: 50 # Number of preprints to screen in Stage 1 and pass to Stage 2
-  knn_k: 3 # Number of nearest Zotero neighbors to aggregate per candidate
-  half_life_days: 180 # Exponential recency decay half-life in days for Zotero paper added date
+    model: gemini-3.8-flash
+    max_tokens: 65536
+  language: English
+  rate_limit:
+    rpm: 5
+    tpm: 250000
+    rpd: 20
 
 reranker:
-  enabled: true # Set to false to disable Stage 2 cross-encoder reranking
-  key: ${llm.api.key} # API Key for reranker API. Defaults to LLM API key.
-  base_url: ${llm.api.base_url} # API URL for reranker API. Defaults to LLM API URL.
-  model: Qwen/Qwen3-Reranker-8B # Reranker model name (e.g. via SiliconFlow / standard /v1/rerank API)
-  blend_weight: 0.7 # Weight for Stage 2 Cross-Encoder score (0.7 CE + 0.3 Bi-Encoder)
-  research_interest: null # Optional manual string override for research interest query
+  api:
+    key: ${oc.env:GEMINI_API_KEY}
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    model: gemini-embedding-2
+    batch_size: 32
+  rate_limit:
+    rpm: 100
+    tpm: 30000
+    rpd: 1000
 
 executor:
-  debug: false # Whether to use debug mode. Example: true
-  send_empty: false # Whether to send an empty email even if no new papers today. Example: true
-  max_paper_num: 10 # The maximum number of papers presented in the email. Example: 10
-  source: null # The sources of papers to retrieve (auto-detected if null). Example: ['arxiv','biorxiv','medrxiv']
-  tokenizer_type: qwen # Tokenizer used for token tracking: 'qwen' or 'gpt4'
+  debug: false
+  send_empty: false
+  max_paper_num: 100
+  source: ["arxiv", "biorxiv"]
 ```
 
-### ⚡ Two-Stage Retrieval & Reranking Pipeline
-1. **Stage 1 (KNN Dense Screener)**: Rapidly screens hundreds of daily preprints using bi-encoder embedding cosine similarity with Top-K Nearest Neighbors ($K=3$) and exponential recency decay ($2^{-\text{age}/\text{half\_life}}$) against your Zotero library, selecting the top candidates and recording their best-matched reference paper.
-2. **Stage 2 (Target-Aware Cross-Encoder Reranker)**: Cross-encodes each candidate preprint directly against its specific matched Zotero reference paper using full natural language text (`Title + Abstract`), ensuring deep semantic understanding and context preservation.
-3. **Calibrated Score Blending & Explainability**: Blends the Cross-Encoder score with the dense embedding score on a 0.0–10.0 scale, and displays a subtle `Matched reference` line in the daily email for transparency.
+### 3. Schedule & Trigger
 
+- The default workflow runs daily at 22:00 UTC via `.github/workflows/main.yml`.
+- Trigger manually at any time under **Actions > Send-emails-daily > Run workflow**.
+- Use `.github/workflows/test-no-email.yml` for non-destructive dry-run testing.
 
+---
 
-That's all! Now you can test the workflow by manually triggering it:
-![test](./assets/test.png)
+## Local Development
 
-> [!NOTE]
-> The Test-Workflow Action is the debug version of the main workflow (Send-emails-daily), which always retrieve 5 arxiv papers regardless of the date. While the main workflow will be automatically triggered everyday and retrieve new papers released yesterday. There is no new arxiv paper at weekends and holiday, in which case you may see "No new papers found" in the log of main workflow.
+### Prerequisites
 
-Then check the log and the receiver email after it finishes.
+- [Go](https://go.dev/) 1.24+
+- `make`
+- *(Optional)* [gh act](https://github.com/nektos/act) for local workflow simulation
 
-By default, the main workflow runs on 22:00 UTC everyday. You can change this time by editting the workflow config `.github/workflows/main.yml`.
+### Getting Started
 
-### Local Running
-Supported by [uv](https://github.com/astral-sh/uv), this workflow can easily run on your local device if uv is installed:
 ```bash
-# set all the environment variables
-# export ZOTERO_ID=xxxx
-# ...
+# 1. Clone the repository
+git clone https://github.com/andreassag/zotero-arxiv-daily.git
 cd zotero-arxiv-daily
-uv run main.py
+
+# 2. Configure local environment
+cp .env.example .env
+# Edit .env with your credentials
+
+# 3. Setup git hooks (enforces Conventional Commits & secret scanning)
+make setup-hooks
+
+# 4. Build and test
+make build
+make test
+
+# 5. Run locally in dry-run mode (outputs HTML without sending emails)
+make run-no-email
 ```
 
-## 🚀 Sync with the latest version
-This project is in active development. You can subscribe this repo via `Watch` so that you can be notified once we publish new release.
+### Makefile Reference
 
-![Watch](./assets/subscribe_release.png)
+| Target | Description |
+| :--- | :--- |
+| `make build` | Builds the Go binary to `bin/zotero-arxiv-daily` |
+| `make run` | Runs the application using local config and credentials |
+| `make run-no-email` | Runs dry-run (`NO_EMAIL=true`) and saves output to `email_output.html` |
+| `make test` | Executes all unit tests |
+| `make test-coverage` | Runs unit tests and generates HTML coverage report at `coverage/coverage.html` |
+| `make fmt` | Formats all Go source files with `gofmt` |
+| `make vet` | Examines Go source code for suspicious constructs |
+| `make lint` | Runs `golangci-lint` static analysis suite |
+| `make vulncheck` | Scans dependencies for known vulnerabilities with `govulncheck` |
+| `make gitleaks` | Detects secrets and credentials across git history with `gitleaks` |
+| `make release-snapshot` | Validates multi-platform packaging via `goreleaser` |
+| `make setup-hooks` | Configures repository Git hooks (`.githooks/`) |
+| `make clean` | Cleans build binaries, coverage reports, and snapshot artifacts |
+| `make act-test-no-email`| Simulates the GitHub Actions test workflow locally via Docker |
 
+---
 
-## 📖 How it works
-*Zotero-arXiv-Daily* firstly retrieves all the papers in your Zotero library and all the papers released in the previous day, via corresponding API. Then it calculates the embedding of each paper's abstract via an embedding model API. The score of a paper is its weighted average similarity over all your Zotero papers (newer paper added to the library has higher weight). The TLDR of each paper is generated by LLM, given the text extracted by pymupdf4llm.
+## Quality & Security
 
-## 📌 Limitations
-- The recommendation algorithm is very simple, it may not accurately reflect your interest. Welcome better ideas for improving the algorithm!
-- High `MAX_PAPER_NUM` can lead the execution time exceed the limitation of Github Action runner (6h per execution for public repo, and 2000 mins per month for private repo). Commonly, the quota given to public repo is definitely enough for individual use. If you have special requirements, you can deploy the workflow in your own server, or use a self-hosted Github Action runner, or pay for the exceeded execution time.
+- **Vulnerability Auditing**: Integrated `govulncheck` in CI and local workflow checks.
+- **Secret Protection**: Configured `gitleaks-action` in CI and local `pre-commit` hooks to prevent committing secrets or `.env` files.
+- **Conventional Commits**: Enforced via `.githooks/commit-msg` to ensure structured commit history and automated changelogs.
+- **Cross-Platform Releases**: Pre-compiled binaries for Linux (`amd64`, `arm64`), macOS (`amd64`, `arm64`), and Windows (`amd64`, `arm64`) generated by GoReleaser on semantic version tags (`v*`).
 
+---
 
-## 📃 License
-Distributed under the AGPLv3 License. See `LICENSE` for detail.
+## License
 
-## ❤️ Acknowledgement
-- [pyzotero](https://github.com/urschrei/pyzotero)
-- [arxiv](https://github.com/lukasschwab/arxiv.py)
-
-## ☕ Buy Me A Coffee
-If you find this project helpful, welcome to sponsor me via WeChat or via [ko-fi](https://ko-fi.com/tidedra).
-![wechat_qr](assets/wechat_sponsor.JPG)
-
-
-## 🌟 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=TideDra/zotero-arxiv-daily&type=Date)](https://star-history.com/#TideDra/zotero-arxiv-daily&Date)
+Distributed under the [AGPL-3.0 License](LICENSE).

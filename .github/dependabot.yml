@@ -1,0 +1,45 @@
+version: 2
+updates:
+  # Maintain Go module dependencies for main branch
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    target-branch: "main"
+    labels:
+      - "dependencies"
+      - "go"
+    open-pull-requests-limit: 10
+
+  # Maintain Go module dependencies for develop branch
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    target-branch: "develop"
+    labels:
+      - "dependencies"
+      - "go"
+    open-pull-requests-limit: 10
+
+  # Maintain GitHub Actions dependencies for main branch
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "main"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 10
+
+  # Maintain GitHub Actions dependencies for develop branch
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "develop"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 10
