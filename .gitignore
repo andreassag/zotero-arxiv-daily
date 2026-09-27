@@ -5,8 +5,7 @@ outputs
 config/private.yaml
 .env
 config/custom.yaml
-artifacts
+artifacts/
 bin/
 coverage/
 dist/
-email_output.html
