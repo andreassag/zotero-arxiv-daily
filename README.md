@@ -18,7 +18,6 @@
 - **Built-in Rate Limiting**: Token-bucket rate limiters enforce requests-per-minute (RPM), tokens-per-minute (TPM), and requests-per-day (RPD) to eliminate API throttling and prevent account lockouts.
 - **Rich HTML Email Digest**: Formats abstracts with full Markdown rendering (proper formatting of italics, bolding, math symbols, and code), author affiliations (resolved via OpenAlex and bioRxiv APIs), direct PDF links, and linked code implementations.
 - **Fast, Native Go Engine**: Statically compiled binary with minimal memory footprint and zero external runtime dependencies.
-- **Automated CI/CD & Security**: Includes CodeQL advanced static analysis, `govulncheck` vulnerability scanning, `gitleaks` secret detection, `golangci-lint` verification, and multi-platform packaging via `goreleaser`.
 
 ---
 
