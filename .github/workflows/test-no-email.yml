@@ -50,7 +50,7 @@ jobs:
       - name: Upload email output as artifact
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: email-output
           path: email_output.html
@@ -59,7 +59,7 @@ jobs:
       - name: Upload embedding input data as artifacts
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: embedding-input-data
           path: outputs/embedding_input_*.json
