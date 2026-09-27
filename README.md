@@ -72,7 +72,8 @@ Add the following credentials under **Settings > Secrets and variables > Actions
 | `SMTP_PASSWORD` | SMTP password or app-specific password | `xxxx-xxxx-xxxx` |
 | `SMTP_SENDER` | Sender email address | `digest@example.com` |
 | `SMTP_RECEIVER` | Destination email address | `you@example.com` |
-| `GEMINI_API_KEY` | API Key for LLM and Embedding models (or `LLM_API_KEY`) | `AIzaSy...` |
+| `LLM_API_KEY` | API Key for LLM models | `AIzaSy...` |
+| `EMBEDDING_API_KEY` | API Key for embeddings models | `AIzaSy...` |
 
 ### 2. Configure Settings
 
