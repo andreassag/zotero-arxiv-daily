@@ -1,0 +1,73 @@
+# ==============================================================================
+# GoReleaser v2 Configuration
+# https://goreleaser.com
+# ==============================================================================
+
+version: 2
+
+project_name: zotero-arxiv-daily
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: zotero-arxiv-daily
+    main: ./go/cmd/zotero-arxiv-daily
+    binary: zotero-arxiv-daily
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+      - config/**
+      - .env.example
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: "🚀 Features"
+      regexp: '^.*?feat(\([a-zA-Z0-9_\.\/-]+\))?:'
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: '^.*?fix(\([a-zA-Z0-9_\.\/-]+\))?:'
+      order: 1
+    - title: "⚡ Performance Improvements"
+      regexp: '^.*?perf(\([a-zA-Z0-9_\.\/-]+\))?:'
+      order: 2
+    - title: "♻️ Refactoring"
+      regexp: '^.*?refactor(\([a-zA-Z0-9_\.\/-]+\))?:'
+      order: 3
+    - title: "📝 Documentation"
+      regexp: '^.*?docs(\([a-zA-Z0-9_\.\/-]+\))?:'
+      order: 4
+    - title: "🔧 Chores & Maintenance"
+      regexp: '^.*?chore(\([a-zA-Z0-9_\.\/-]+\))?:'
+      order: 5
+    - title: "Others"
+      order: 999

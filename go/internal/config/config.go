@@ -61,6 +61,7 @@ type EmailConfig struct {
 	SMTPPort       int    `yaml:"smtp_port"`
 	SenderPassword string `yaml:"sender_password"`
 	SMTPUser       string `yaml:"smtp_user"`
+	SMTPUsername   string `yaml:"smtp_username"`
 }
 
 type APIConfig struct {
@@ -73,10 +74,17 @@ type LLMGenerationKwargs struct {
 	MaxTokens int    `yaml:"max_tokens"`
 }
 
+type RateLimitConfig struct {
+	RPM int `yaml:"rpm"`
+	TPM int `yaml:"tpm"`
+	RPD int `yaml:"rpd"`
+}
+
 type LLMConfig struct {
 	API              APIConfig           `yaml:"api"`
 	GenerationKwargs LLMGenerationKwargs `yaml:"generation_kwargs"`
 	Language         string              `yaml:"language"`
+	RateLimit        RateLimitConfig     `yaml:"rate_limit"`
 }
 
 type RerankerAPIConfig struct {
@@ -87,7 +95,8 @@ type RerankerAPIConfig struct {
 }
 
 type RerankerConfig struct {
-	API RerankerAPIConfig `yaml:"api"`
+	API       RerankerAPIConfig `yaml:"api"`
+	RateLimit RateLimitConfig   `yaml:"rate_limit"`
 }
 
 type ExecutorConfig struct {
@@ -108,40 +117,73 @@ type Config struct {
 	Executor ExecutorConfig `yaml:"executor"`
 }
 
-// EnvVarRegex matches pattern ${ENV_VAR_NAME} or ${oc.env:VAR_NAME} or ${oc.env:VAR_NAME,default}
-var EnvVarRegex = regexp.MustCompile(`\$\{([^}]+)\}`)
+// innermostEnvRegex matches innermost ${...} without nested braces
+var innermostEnvRegex = regexp.MustCompile(`\$\{([^{}]+)\}`)
 
-// ExpandEnv replaces env placeholders in YAML content.
-func ExpandEnv(content string) string {
-	return EnvVarRegex.ReplaceAllStringFunc(content, func(match string) string {
-		inner := match[2 : len(match)-1] // strip "${" and "}"
-		inner = strings.TrimPrefix(inner, "oc.env:")
-
-		parts := strings.SplitN(inner, ",", 2)
-		varName := strings.TrimSpace(parts[0])
-
-		val, exists := os.LookupEnv(varName)
-		if exists && val != "" {
-			return val
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
 		}
-
-		if len(parts) == 2 {
-			defVal := strings.TrimSpace(parts[1])
-			if defVal == "null" {
-				return ""
-			}
-			return defVal
-		}
-
-		return ""
-	})
+	}
+	return true
 }
 
-// LoadConfigFromDir loads config files from configDir, merging base.yaml and custom.yaml (if present)
+// ExpandEnv replaces env placeholders in YAML content, resolving nested and default expressions.
+func ExpandEnv(content string) string {
+	for i := 0; i < 10; i++ {
+		if !innermostEnvRegex.MatchString(content) {
+			break
+		}
+		content = innermostEnvRegex.ReplaceAllStringFunc(content, func(match string) string {
+			inner := match[2 : len(match)-1] // strip "${" and "}"
+			inner = strings.TrimPrefix(inner, "oc.env:")
+			inner = strings.TrimPrefix(inner, "oc.decode:")
+
+			parts := strings.SplitN(inner, ",", 2)
+			varName := strings.TrimSpace(parts[0])
+
+			val, exists := os.LookupEnv(varName)
+			if exists && val != "" {
+				return val
+			}
+
+			if len(parts) == 2 {
+				defVal := strings.TrimSpace(parts[1])
+				if defVal == "null" {
+					return ""
+				}
+				return defVal
+			}
+
+			if varName == "true" || varName == "false" || isDigits(varName) {
+				return varName
+			}
+
+			return ""
+		})
+	}
+	return content
+}
+
+// LoadConfigFromDir loads config files from configDir, merging base.yaml (or default.yaml / config.yaml) and custom.yaml (if present)
 func LoadConfigFromDir(configDir string) (*Config, error) {
 	var cfg Config
 
 	basePath := filepath.Join(configDir, "base.yaml")
+	if _, err := os.Stat(basePath); os.IsNotExist(err) {
+		for _, alt := range []string{"default.yaml", "config.yaml"} {
+			p := filepath.Join(configDir, alt)
+			if _, err := os.Stat(p); err == nil {
+				basePath = p
+				break
+			}
+		}
+	}
+
 	baseBytes, err := readAndExpandFile(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load base config %s: %w", basePath, err)
@@ -165,7 +207,11 @@ func LoadConfigFromDir(configDir string) (*Config, error) {
 
 	// Apply default SMTP user if not set
 	if cfg.Email.SMTPUser == "" {
-		cfg.Email.SMTPUser = cfg.Email.Sender
+		if cfg.Email.SMTPUsername != "" {
+			cfg.Email.SMTPUser = cfg.Email.SMTPUsername
+		} else {
+			cfg.Email.SMTPUser = cfg.Email.Sender
+		}
 	}
 
 	// Validation checks
@@ -191,7 +237,19 @@ func LoadConfigFromFile(path string) (*Config, error) {
 	}
 
 	if cfg.Email.SMTPUser == "" {
-		cfg.Email.SMTPUser = cfg.Email.Sender
+		if cfg.Email.SMTPUsername != "" {
+			cfg.Email.SMTPUser = cfg.Email.SMTPUsername
+		} else {
+			cfg.Email.SMTPUser = cfg.Email.Sender
+		}
+	}
+
+	// Validation checks
+	if cfg.Zotero.UserID == "???" || cfg.Zotero.UserID == "" {
+		return nil, fmt.Errorf("zotero.user_id is required and not configured")
+	}
+	if cfg.Zotero.APIKey == "???" || cfg.Zotero.APIKey == "" {
+		return nil, fmt.Errorf("zotero.api_key is required and not configured")
 	}
 
 	return &cfg, nil

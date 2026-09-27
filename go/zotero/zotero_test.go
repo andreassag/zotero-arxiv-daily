@@ -66,11 +66,12 @@ func TestZoteroFetchCorpus(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 
-		if r.URL.Path == "/users/12345/collections" || r.URL.Path == "/users/12345/collections/" {
+		switch r.URL.Path {
+		case "/users/12345/collections", "/users/12345/collections/":
 			_, _ = w.Write([]byte(mockCollectionsJSON))
-		} else if r.URL.Path == "/users/12345/items" {
+		case "/users/12345/items":
 			_, _ = w.Write([]byte(mockItemsJSON))
-		} else {
+		default:
 			http.NotFound(w, r)
 		}
 	}))

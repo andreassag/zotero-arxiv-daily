@@ -141,3 +141,68 @@ zotero:
 		t.Error("expected validation error due to '???' in user_id, got nil")
 	}
 }
+
+func TestExpandEnv_NestedAndDecode(t *testing.T) {
+	t.Setenv("PORT_VAR", "587")
+	t.Setenv("DEBUG_VAR", "true")
+	t.Setenv("FALLBACK_VAL", "secondary")
+
+	// Test oc.decode with env var
+	expanded1 := ExpandEnv("port: ${oc.decode:${oc.env:PORT_VAR}}")
+	if expanded1 != "port: 587" {
+		t.Errorf("expected 'port: 587', got '%s'", expanded1)
+	}
+
+	// Test oc.decode with boolean
+	expanded2 := ExpandEnv("debug: ${oc.decode:${oc.env:DEBUG_VAR}}")
+	if expanded2 != "debug: true" {
+		t.Errorf("expected 'debug: true', got '%s'", expanded2)
+	}
+
+	// Test oc.decode with default
+	expanded3 := ExpandEnv("port: ${oc.decode:${oc.env:NONEXISTENT_PORT,465}}")
+	if expanded3 != "port: 465" {
+		t.Errorf("expected 'port: 465', got '%s'", expanded3)
+	}
+
+	// Test nested fallback ${PRIMARY,${SECONDARY}}
+	expanded4 := ExpandEnv("val: ${PRIMARY_UNSET,${FALLBACK_VAL}}")
+	if expanded4 != "val: secondary" {
+		t.Errorf("expected 'val: secondary', got '%s'", expanded4)
+	}
+}
+
+func TestRateLimitConfigParsing(t *testing.T) {
+	rateLimitYAML := `
+zotero:
+  user_id: "123"
+  api_key: "key"
+llm:
+  rate_limit:
+    rpm: 15
+    tpm: 250000
+    rpd: 500
+reranker:
+  rate_limit:
+    rpm: 100
+    tpm: 30000
+    rpd: 1000
+`
+	tmpDir := t.TempDir()
+	err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(rateLimitYAML), 0644)
+	if err != nil {
+		t.Fatalf("failed to write config.yaml: %v", err)
+	}
+
+	cfg, err := LoadConfigFromDir(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error loading config: %v", err)
+	}
+
+	if cfg.LLM.RateLimit.RPM != 15 || cfg.LLM.RateLimit.TPM != 250000 || cfg.LLM.RateLimit.RPD != 500 {
+		t.Errorf("unexpected LLM rate limits: %+v", cfg.LLM.RateLimit)
+	}
+	if cfg.Reranker.RateLimit.RPM != 100 || cfg.Reranker.RateLimit.TPM != 30000 || cfg.Reranker.RateLimit.RPD != 1000 {
+		t.Errorf("unexpected Reranker rate limits: %+v", cfg.Reranker.RateLimit)
+	}
+}

@@ -1,0 +1,79 @@
+name: Dependabot Auto-Merge
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge Dependabot PR
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Approve and merge Dependabot PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 1. Retrieve PR number from workflow_run payload or query via GitHub CLI
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            echo "PR number not found in event payload. Looking up open PR for head branch '${{ github.event.workflow_run.head_branch }}'..."
+            PR_NUMBER=$(gh pr list --head "${{ github.event.workflow_run.head_branch }}" --state open --json number --jq '.[0].number')
+          fi
+
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            echo "No open PR found for branch '${{ github.event.workflow_run.head_branch }}'. Nothing to merge."
+            exit 0
+          fi
+
+          echo "Evaluating PR #$PR_NUMBER..."
+
+          # 2. Fetch PR metadata (author, base branch, title)
+          PR_JSON=$(gh pr view "$PR_NUMBER" --json author,baseRefName,title)
+          PR_AUTHOR=$(echo "$PR_JSON" | jq -r '.author.login')
+          BASE_BRANCH=$(echo "$PR_JSON" | jq -r '.baseRefName')
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
+
+          echo "Title: $PR_TITLE"
+          echo "Author: $PR_AUTHOR"
+          echo "Base branch: $BASE_BRANCH"
+
+          # 3. Only proceed if PR author is Dependabot
+          if [ "$PR_AUTHOR" != "dependabot[bot]" ] && [ "$PR_AUTHOR" != "app/dependabot" ]; then
+            echo "PR was not created by Dependabot (author is '$PR_AUTHOR'). Skipping auto-merge."
+            exit 0
+          fi
+
+          # 4. Only proceed if targeting main or develop
+          if [ "$BASE_BRANCH" != "main" ] && [ "$BASE_BRANCH" != "develop" ]; then
+            echo "PR targets '$BASE_BRANCH', which is neither 'main' nor 'develop'. Skipping auto-merge."
+            exit 0
+          fi
+
+          echo "CI tests passed cleanly and PR criteria met. Approving PR #$PR_NUMBER..."
+
+          # 5. Approve the PR
+          gh pr review "$PR_NUMBER" --approve --body "Dependabot auto-merge: CI passed successfully on branch '$BASE_BRANCH'." || {
+            echo "Notice: Could not submit review approval (may already be approved or author restriction). Continuing with merge..."
+          }
+
+          echo "Merging PR #$PR_NUMBER into $BASE_BRANCH..."
+
+          # 6. Merge the PR (attempts GitHub native auto-merge first, then direct squash merge)
+          if gh pr merge "$PR_NUMBER" --squash --auto; then
+            echo "Successfully enabled auto-merge for PR #$PR_NUMBER."
+          else
+            echo "Native auto-merge not enabled on repository; executing direct squash merge..."
+            gh pr merge "$PR_NUMBER" --squash
+            echo "Successfully merged PR #$PR_NUMBER into $BASE_BRANCH."
+          fi

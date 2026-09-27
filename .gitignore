@@ -3,3 +3,9 @@ models
 test-compose.yml
 outputs
 config/private.yaml
+.env
+config/custom.yaml
+artifacts
+bin/
+coverage/
+dist/

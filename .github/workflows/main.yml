@@ -24,12 +24,19 @@ jobs:
         env:
           ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
           ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
-          SENDER: ${{ secrets.SENDER }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          RECEIVER: ${{ secrets.RECEIVER }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME || secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD || secrets.SENDER_PASSWORD }}
+          SMTP_SENDER: ${{ secrets.SMTP_SENDER || secrets.SENDER }}
+          SMTP_RECEIVER: ${{ secrets.SMTP_RECEIVER || secrets.RECEIVER }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY || secrets.OPENAI_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || secrets.OPENAI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL || 'gemini-2.5-flash' }}
+          EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY || secrets.LLM_API_KEY || secrets.OPENAI_API_KEY }}
+          EMBEDDING_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL || secrets.LLM_BASE_URL || secrets.OPENAI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
+          EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL || 'gemini-embedding-2' }}
+          DEBUG: ${{ vars.DEBUG || 'false' }}
           CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
         run: |
           cp config/config.yaml config/base.yaml

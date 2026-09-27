@@ -20,15 +20,19 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/config"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/email"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/llm"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/model"
+	"github.com/exTerEX/zotero-arxiv-daily/go/internal/ratelimit"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/reranker"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/retriever"
 	"github.com/exTerEX/zotero-arxiv-daily/go/zotero"
@@ -36,6 +40,7 @@ import (
 
 type Executor struct {
 	cfg         *config.Config
+	httpClient  *http.Client
 	llmClient   *llm.Client
 	zotClient   *zotero.Client
 	reranker    *reranker.Reranker
@@ -44,9 +49,40 @@ type Executor struct {
 }
 
 func New(cfg *config.Config) (*Executor, error) {
-	llmClient := llm.NewClient(cfg.LLM.API.Key, cfg.LLM.API.BaseURL)
+	var llmOpts []llm.Option
+	if cfg.LLM.RateLimit.RPM > 0 || cfg.LLM.RateLimit.TPM > 0 || cfg.LLM.RateLimit.RPD > 0 {
+		llmLimiter := ratelimit.New("LLM", ratelimit.Config{
+			RPM: cfg.LLM.RateLimit.RPM,
+			TPM: cfg.LLM.RateLimit.TPM,
+			RPD: cfg.LLM.RateLimit.RPD,
+		})
+		llmOpts = append(llmOpts, llm.WithRateLimiter(llmLimiter))
+	}
+	llmClient := llm.NewClient(cfg.LLM.API.Key, cfg.LLM.API.BaseURL, llmOpts...)
+
+	// Reranker client
+	rerankKey := cfg.Reranker.API.Key
+	if rerankKey == "" {
+		rerankKey = cfg.LLM.API.Key
+	}
+	rerankBase := cfg.Reranker.API.BaseURL
+	if rerankBase == "" {
+		rerankBase = cfg.LLM.API.BaseURL
+	}
+
+	var rerankOpts []llm.Option
+	if cfg.Reranker.RateLimit.RPM > 0 || cfg.Reranker.RateLimit.TPM > 0 || cfg.Reranker.RateLimit.RPD > 0 {
+		rerankLimiter := ratelimit.New("Reranker", ratelimit.Config{
+			RPM: cfg.Reranker.RateLimit.RPM,
+			TPM: cfg.Reranker.RateLimit.TPM,
+			RPD: cfg.Reranker.RateLimit.RPD,
+		})
+		rerankOpts = append(rerankOpts, llm.WithRateLimiter(rerankLimiter))
+	}
+	rerankLLM := llm.NewClient(rerankKey, rerankBase, rerankOpts...)
+
 	zotClient := zotero.NewClient(cfg.Zotero.UserID, cfg.Zotero.APIKey)
-	ranker := reranker.New(llmClient, cfg.Reranker.API.Model, cfg.Reranker.API.BatchSize)
+	ranker := reranker.New(rerankLLM, cfg.Reranker.API.Model, cfg.Reranker.API.BatchSize)
 
 	// Compile glob pattern regexes
 	includeRegs, err := compileGlobs(cfg.Zotero.IncludePath)
@@ -61,6 +97,7 @@ func New(cfg *config.Config) (*Executor, error) {
 
 	return &Executor{
 		cfg:         cfg,
+		httpClient:  &http.Client{Timeout: 15 * time.Second},
 		llmClient:   llmClient,
 		zotClient:   zotClient,
 		reranker:    ranker,
@@ -180,7 +217,7 @@ func (e *Executor) Run(ctx context.Context) error {
 		}
 
 		// 5. Generate TL;DRs and extract affiliations
-		slog.Info("Generating TL;DRs and affiliations via OpenAI...")
+		slog.Info("Generating TL;DRs and affiliations...")
 		for i := range rankedPapers {
 			tldr, err := e.llmClient.GenerateTLDR(ctx, rankedPapers[i].Title, rankedPapers[i].Abstract, e.cfg.LLM.Language, e.cfg.LLM.GenerationKwargs.Model, e.cfg.LLM.GenerationKwargs.MaxTokens)
 			if err != nil {
@@ -190,12 +227,8 @@ func (e *Executor) Run(ctx context.Context) error {
 				rankedPapers[i].TLDR = tldr
 			}
 
-			affs, err := e.llmClient.ExtractAffiliations(ctx, rankedPapers[i].FullText, e.cfg.LLM.GenerationKwargs.Model)
-			if err != nil {
-				slog.Warn("Failed to extract affiliations", "paper", rankedPapers[i].Title, "error", err)
-			} else {
-				rankedPapers[i].Affiliations = affs
-			}
+			affs := ExtractAffiliations(ctx, e.httpClient, e.llmClient, &rankedPapers[i], e.cfg.LLM.GenerationKwargs.Model)
+			rankedPapers[i].Affiliations = affs
 		}
 	}
 
@@ -259,9 +292,10 @@ func (e *Executor) handleEmailSending(ctx context.Context, papers []model.Paper)
 	if noEmail == "true" || noEmail == "1" || noEmail == "yes" {
 		slog.Info("NO_EMAIL environment variable set. Skipping email dispatch.")
 
-		savePath := os.Getenv("SAVE_EMAIL_PATH")
-		if savePath != "" {
-			if err := os.WriteFile(savePath, []byte(emailHTML), 0644); err != nil {
+		rawPath := os.Getenv("SAVE_EMAIL_PATH")
+		if rawPath != "" {
+			savePath := filepath.Clean(rawPath)
+			if err := os.WriteFile(savePath, []byte(emailHTML), 0600); err != nil {
 				slog.Error("Failed to save email output to file", "path", savePath, "error", err)
 			} else {
 				slog.Info("Saved email content to local file", "path", savePath)

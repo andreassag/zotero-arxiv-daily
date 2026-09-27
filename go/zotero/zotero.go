@@ -20,9 +20,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -186,6 +188,7 @@ func (c *Client) fetchAllCollections(ctx context.Context) ([]collectionResponse,
 			return nil, err
 		}
 		req.Header.Set("Zotero-API-Key", c.apiKey)
+		req.Header.Set("Zotero-API-Version", "3")
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -193,8 +196,9 @@ func (c *Client) fetchAllCollections(ctx context.Context) ([]collectionResponse,
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			return nil, fmt.Errorf("HTTP status %d fetching collections", resp.StatusCode)
+			return nil, fmt.Errorf("HTTP status %d fetching collections: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
 		var page []collectionResponse
@@ -243,6 +247,7 @@ func (c *Client) fetchAllItems(ctx context.Context) ([]itemResponse, error) {
 			return nil, err
 		}
 		req.Header.Set("Zotero-API-Key", c.apiKey)
+		req.Header.Set("Zotero-API-Version", "3")
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -259,8 +264,9 @@ func (c *Client) fetchAllItems(ctx context.Context) ([]itemResponse, error) {
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			return nil, fmt.Errorf("HTTP status %d fetching items", resp.StatusCode)
+			return nil, fmt.Errorf("HTTP status %d fetching items: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
 		var page []itemResponse

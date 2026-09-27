@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - develop
 
   pull_request:
     branches:
       - main
+      - develop
 
 jobs:
   test:
@@ -21,6 +23,20 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.14.0
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: 'go.mod'
+          go-package: ./...
 
       - name: Run tests
         run: go test -v -cover ./...

@@ -112,7 +112,7 @@ func TestLLMExtractAffiliations(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("fake-key", server.URL)
-	affs, err := client.ExtractAffiliations(context.Background(), "Full text starting...", "gpt-4o-mini")
+	affs, err := client.ExtractAffiliations(context.Background(), "Paper Title", []string{"Author One"}, "Paper Abstract", "Full text starting...", "gpt-4o-mini")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

@@ -23,27 +23,43 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/exTerEX/zotero-arxiv-daily/go/internal/ratelimit"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
 
 type Client struct {
-	client *openai.Client
+	client  *openai.Client
+	limiter *ratelimit.Limiter
+}
+
+// Option configures an LLM Client.
+type Option func(*Client)
+
+// WithRateLimiter attaches a RateLimiter to the Client.
+func WithRateLimiter(limiter *ratelimit.Limiter) Option {
+	return func(c *Client) {
+		c.limiter = limiter
+	}
 }
 
 // NewClient creates a new OpenAI Go SDK wrapper.
-func NewClient(apiKey, baseURL string) *Client {
-	var opts []option.RequestOption
+func NewClient(apiKey, baseURL string, opts ...Option) *Client {
+	var reqOpts []option.RequestOption
 	if apiKey != "" {
-		opts = append(opts, option.WithAPIKey(apiKey))
+		reqOpts = append(reqOpts, option.WithAPIKey(apiKey))
 	}
 	if baseURL != "" {
-		opts = append(opts, option.WithBaseURL(baseURL))
+		reqOpts = append(reqOpts, option.WithBaseURL(baseURL))
 	}
-	client := openai.NewClient(opts...)
-	return &Client{
+	client := openai.NewClient(reqOpts...)
+	c := &Client{
 		client: &client,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // GenerateTLDR uses ChatCompletions to generate a 2-3 sentence summary.
@@ -75,6 +91,13 @@ func (c *Client) GenerateTLDR(ctx context.Context, title, abstract, language, mo
 		params.MaxCompletionTokens = openai.Int(int64(maxTokens))
 	}
 
+	if c.limiter != nil {
+		estTokens := ratelimit.EstimateTokens(systemContent) + ratelimit.EstimateTokens(prompt)
+		if err := c.limiter.Acquire(ctx, estTokens); err != nil {
+			return "", err
+		}
+	}
+
 	resp, err := c.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return "", err
@@ -89,18 +112,32 @@ func (c *Client) GenerateTLDR(ctx context.Context, title, abstract, language, mo
 
 var jsonArrayRegex = regexp.MustCompile(`\[.*?\]`)
 
-// ExtractAffiliations extracts the affiliations of authors in a list format.
-func (c *Client) ExtractAffiliations(ctx context.Context, fullText, model string) ([]string, error) {
-	if fullText == "" {
+// ExtractAffiliations extracts the affiliations of authors from fullText or title/authors/abstract.
+func (c *Client) ExtractAffiliations(ctx context.Context, title string, authors []string, abstract, fullText, model string) ([]string, error) {
+	content := fullText
+	if strings.TrimSpace(content) == "" {
+		var parts []string
+		if title != "" {
+			parts = append(parts, "Title: "+title)
+		}
+		if len(authors) > 0 {
+			parts = append(parts, "Authors: "+strings.Join(authors, ", "))
+		}
+		if abstract != "" {
+			parts = append(parts, "Abstract: "+abstract)
+		}
+		content = strings.Join(parts, "\n\n")
+	}
+	if strings.TrimSpace(content) == "" {
 		return nil, nil
 	}
 
-	prompt := fmt.Sprintf("Given the beginning of a paper, extract the affiliations of the authors in a python list format, which is sorted by the author order. If there is no affiliation found, return an empty list '[]':\n\n%s", fullText)
+	prompt := fmt.Sprintf("Given the following scientific paper details, extract the affiliations or institutions of the authors in a JSON list format [\"Institution 1\", \"Institution 2\"]. If an affiliation has multi-level departments, extract the top-level institution or university name only. If no affiliation can be determined, return an empty list []. Return only the JSON list:\n\n%s", content)
 	if len(prompt) > 8000 {
 		prompt = prompt[:8000]
 	}
 
-	systemContent := "You are an assistant who perfectly extracts affiliations of authors from a paper. You should return a python list of affiliations sorted by the author order, like [\"TsingHua University\",\"Peking University\"]. If an affiliation is consisted of multi-level affiliations, like 'Department of Computer Science, TsingHua University', you should return the top-level affiliation 'TsingHua University' only. Do not contain duplicated affiliations. If there is no affiliation found, you should return an empty list [ ]. You should only return the final list of affiliations, and do not return any intermediate results."
+	systemContent := "You are an assistant who extracts affiliations of authors from a scientific paper. Return a JSON list of unique institutions, like [\"Stanford University\", \"Tsinghua University\"]. If no affiliation is found, return []. Only return the JSON list, with no surrounding explanations."
 
 	params := openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -108,6 +145,13 @@ func (c *Client) ExtractAffiliations(ctx context.Context, fullText, model string
 			openai.UserMessage(prompt),
 		},
 		Model: model,
+	}
+
+	if c.limiter != nil {
+		estTokens := ratelimit.EstimateTokens(systemContent) + ratelimit.EstimateTokens(prompt)
+		if err := c.limiter.Acquire(ctx, estTokens); err != nil {
+			return nil, err
+		}
 	}
 
 	resp, err := c.client.Chat.Completions.New(ctx, params)
@@ -119,7 +163,7 @@ func (c *Client) ExtractAffiliations(ctx context.Context, fullText, model string
 		return nil, fmt.Errorf("no response choices returned from LLM")
 	}
 
-	content := resp.Choices[0].Message.Content
+	content = resp.Choices[0].Message.Content
 	match := jsonArrayRegex.FindString(strings.ReplaceAll(content, "\n", " "))
 	if match == "" {
 		return nil, fmt.Errorf("failed to locate JSON list in LLM response: %s", content)
@@ -165,6 +209,13 @@ func (c *Client) GetEmbeddings(ctx context.Context, texts []string, model string
 				OfArrayOfStrings: batch,
 			},
 			Model: model,
+		}
+
+		if c.limiter != nil {
+			estTokens := ratelimit.EstimateTokensSlice(batch)
+			if err := c.limiter.Acquire(ctx, estTokens); err != nil {
+				return nil, err
+			}
 		}
 
 		resp, err := c.client.Embeddings.New(ctx, params)

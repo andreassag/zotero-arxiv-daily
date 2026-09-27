@@ -1,51 +1,52 @@
-# Zotero API configuration
 zotero:
-  user_id: "${ZOTERO_ID}"     # Your Zotero user ID
-  api_key: "${ZOTERO_KEY}"     # Your Zotero API key with read permission
-  include_path: null           # List of glob patterns to include (e.g. ["2026/survey/**"])
-  ignore_path: null            # List of glob patterns to ignore (e.g. ["archive/**"])
+  user_id: ${oc.env:ZOTERO_ID}
+  api_key: ${oc.env:ZOTERO_KEY}
+  include_path: null
+  ignore_path: null
 
-# Source paper categories to check
 source:
   arxiv:
-    category: ["cs.AI", "cs.CV", "cs.LG", "cs.CL"]
+    category: null
     include_cross_list: false
   biorxiv:
-    category: ["bioinformatics"]
+    category: ["bioengineering", "bioinformatics", "genomics", "microbiology", "molecular biology", "synthetic biology"]
   medrxiv:
-    category: ["neurology"]
+    category: null
 
-# SMTP email server configuration for digest dispatch
 email:
-  sender: "${SENDER}"
-  receiver: "${RECEIVER}"
-  smtp_server: "smtp.qq.com"
-  smtp_port: 465               # Use 465 for SSL, or 587/25 for STARTTLS
-  sender_password: "${SENDER_PASSWORD}"
-  smtp_user: "${SMTP_USER}"
+  sender: ${oc.env:SMTP_SENDER}
+  receiver: ${oc.env:SMTP_RECEIVER}
+  smtp_server: smtp.tem.scaleway.com
+  smtp_port: 587
+  smtp_username: ${oc.env:SMTP_USERNAME}
+  sender_password: ${oc.env:SMTP_PASSWORD}
 
-# OpenAI API details for generating paper TL;DRs and affiliations
 llm:
   api:
-    key: "${OPENAI_API_KEY}"
-    base_url: "${OPENAI_API_BASE}"
+    key: ${oc.env:GEMINI_API_KEY}
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
   generation_kwargs:
-    model: "gpt-4o-mini"
-    max_tokens: 150
-  language: "English"          # Target language for TL;DR summaries
+    model: gemini-3.8-flash
+    max_tokens: 65536
+  language: English
+  rate_limit:
+    rpm: 5
+    tpm: 250000
+    rpd: 20
 
-# Embedding model API settings for paper reranking
 reranker:
   api:
-    key: "${RERANKER_API_KEY}"
-    base_url: "${RERANKER_API_BASE}"
-    model: "text-embedding-3-large"
-    batch_size: 64
+    key: ${oc.env:GEMINI_API_KEY}
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    model: gemini-embedding-2
+    batch_size: 32
+  rate_limit:
+    rpm: 100
+    tpm: 30000
+    rpd: 1000
 
-# Executor execution parameters
 executor:
-  debug: false
+  debug: ${oc.decode:${oc.env:DEBUG}}
   send_empty: false
   max_paper_num: 100
-  source: ["arxiv"]
-  reranker: "api"
+  source: ["biorxiv"]

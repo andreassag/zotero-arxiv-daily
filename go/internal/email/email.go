@@ -44,41 +44,87 @@ func RenderEmail(papers []model.Paper) string {
 		}
 
 		// Clean affiliations
-		affiliations := "Unknown Affiliation"
+		affBlock := ""
 		if len(p.Affiliations) > 0 {
+			var affStr string
 			if len(p.Affiliations) <= 5 {
-				affiliations = strings.Join(p.Affiliations, ", ")
+				affStr = strings.Join(p.Affiliations, "; ")
 			} else {
-				affiliations = strings.Join(p.Affiliations[:5], ", ") + ", ..."
+				affStr = strings.Join(p.Affiliations[:5], "; ") + ", ..."
 			}
+			affBlock = fmt.Sprintf(`<div style="font-size: 13px; color: #64748b; margin-top: 4px; line-height: 1.4;"><span style="margin-right: 4px;">🏛️</span>%s</div>`, affStr)
 		}
 
 		// Render stars relevance
 		stars := getStarsHTML(p.Score)
 
+		// Format Title with Markdown
+		formattedTitle := MarkdownToHTML(p.Title)
+
+		// Format TL;DR
+		formattedTLDR := MarkdownToHTML(p.TLDR)
+		tldrBlock := ""
+		if formattedTLDR != "" && strings.TrimSpace(p.TLDR) != strings.TrimSpace(p.Abstract) {
+			tldrBlock = fmt.Sprintf(`
+			<div style="margin-bottom: 16px; background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 12px 16px; border-radius: 0 8px 8px 0;">
+				<div style="font-size: 12px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">TL;DR</div>
+				<div style="font-size: 14px; color: #1e293b; line-height: 1.6;">%s</div>
+			</div>`, formattedTLDR)
+		}
+
+		// Format Abstract
+		formattedAbstract := MarkdownToHTML(p.Abstract)
+		abstractBlock := ""
+		if formattedAbstract != "" {
+			if tldrBlock != "" {
+				// Collapsible abstract if TL;DR is already shown
+				abstractBlock = fmt.Sprintf(`
+				<details style="margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff; padding: 10px 14px;">
+					<summary style="font-size: 13px; font-weight: 600; color: #475569; cursor: pointer; user-select: none;">
+						Abstract
+					</summary>
+					<div style="font-size: 14px; color: #334155; line-height: 1.6; margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
+						%s
+					</div>
+				</details>`, formattedAbstract)
+			} else {
+				// Standalone abstract block if no separate TL;DR
+				abstractBlock = fmt.Sprintf(`
+				<div style="margin-bottom: 16px;">
+					<div style="font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Abstract</div>
+					<div style="font-size: 14px; color: #334155; line-height: 1.6;">%s</div>
+				</div>`, formattedAbstract)
+			}
+		}
+
+		// Action buttons
+		webButton := ""
+		if p.URL != "" && p.URL != p.PDFURL {
+			webButton = fmt.Sprintf(`<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 13px; font-weight: 600; color: #334155; background-color: #f1f5f9; padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; transition: background-color 0.2s;">Web Page</a>`, p.URL)
+		}
+		pdfButton := fmt.Sprintf(`<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 13px; font-weight: 700; color: #ffffff; background-color: #dc2626; padding: 8px 20px; border-radius: 6px; box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2); transition: background-color 0.2s;">PDF</a>`, p.PDFURL)
+
 		block := fmt.Sprintf(`
 		<div style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); margin-bottom: 24px; padding: 24px; border: 1px solid #eaeaea; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-			<h2 style="font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 0; margin-bottom: 8px; line-height: 1.4;">%s</h2>
-			<div style="font-size: 14px; color: #666666; margin-bottom: 16px; line-height: 1.5;">
+			<h2 style="font-size: 19px; font-weight: 700; color: #1a1a1a; margin-top: 0; margin-bottom: 8px; line-height: 1.4;">%s</h2>
+			<div style="font-size: 14px; color: #666666; margin-bottom: 14px; line-height: 1.5;">
 				<span style="font-weight: 500;">%s</span>
-				<br>
-				<span style="font-style: italic; color: #888888; font-size: 13px;">%s</span>
+				%s
 			</div>
 			
-			<div style="display: flex; align-items: center; margin-bottom: 16px; font-size: 14px; color: #2e7d32; font-weight: 600; background-color: #e8f5e9; padding: 6px 12px; border-radius: 20px; width: fit-content;">
-				<span style="margin-right: 8px;">Relevance Score: %.1f</span>
+			<div style="display: inline-flex; align-items: center; margin-bottom: 16px; font-size: 13px; color: #166534; font-weight: 600; background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 5px 12px; border-radius: 16px;">
+				<span style="margin-right: 6px;">Relevance Score: %.1f</span>
 				%s
 			</div>
 
-			<div style="margin-bottom: 24px;">
-				<h4 style="font-size: 14px; font-weight: 600; color: #37474f; margin-top: 0; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">TL;DR</h4>
-				<p style="font-size: 15px; color: #424242; line-height: 1.6; margin: 0;">%s</p>
-			</div>
+			%s
+			%s
 
-			<div style="margin-top: 16px;">
-				<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 14px; font-weight: 700; color: #ffffff; background-color: #d32f2f; padding: 10px 24px; border-radius: 6px; box-shadow: 0 2px 4px rgba(211, 47, 47, 0.2); transition: background-color 0.2s;">PDF URL</a>
+			<div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
+				%s
+				%s
 			</div>
-		</div>`, p.Title, authors, affiliations, p.Score, stars, p.TLDR, p.PDFURL)
+		</div>`, formattedTitle, authors, affBlock, p.Score, stars, tldrBlock, abstractBlock, pdfButton, webButton)
 
 		cardBlocks = append(cardBlocks, block)
 	}

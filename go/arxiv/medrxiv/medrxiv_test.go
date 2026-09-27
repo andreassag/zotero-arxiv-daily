@@ -72,3 +72,59 @@ func TestMedrxivFetchPapers(t *testing.T) {
 		t.Errorf("expected medrxiv PDF URL %q, got %q", wantPDF, p.PDFURL)
 	}
 }
+
+const mockMedrxivRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <item rdf:about="https://www.medrxiv.org/content/10.1101/2026.09.25.000003v1?rss=1">
+    <title>Medrxiv RSS Title</title>
+    <link>https://www.medrxiv.org/content/10.1101/2026.09.25.000003v1?rss=1</link>
+    <description>Medrxiv RSS Abstract.</description>
+    <dc:creator>Johnson, B.</dc:creator>
+    <dc:date>2026-09-26</dc:date>
+    <dc:identifier>doi:10.1101/2026.09.25.000003</dc:identifier>
+  </item>
+</rdf:RDF>`
+
+func TestMedrxivFetchPapersRSSFallback(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Empty body (0 bytes)
+	}))
+	defer apiServer.Close()
+
+	rssServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(mockMedrxivRSS))
+	}))
+	defer rssServer.Close()
+
+	client := NewClient(
+		WithBaseURL(apiServer.URL),
+		WithRSSBaseURL(rssServer.URL),
+	)
+
+	papers, err := client.FetchPapers(context.Background(), []string{"Neurology"})
+	if err != nil {
+		t.Fatalf("expected no error with RSS fallback, got: %v", err)
+	}
+
+	if len(papers) != 1 {
+		t.Fatalf("expected 1 paper from RSS, got %d", len(papers))
+	}
+
+	p := papers[0]
+	if p.Title != "Medrxiv RSS Title" {
+		t.Errorf("expected 'Medrxiv RSS Title', got %q", p.Title)
+	}
+	if p.Abstract != "Medrxiv RSS Abstract." {
+		t.Errorf("expected RSS abstract, got %q", p.Abstract)
+	}
+	if p.URL != "https://www.medrxiv.org/content/10.1101/2026.09.25.000003v1" {
+		t.Errorf("expected clean URL, got %q", p.URL)
+	}
+	if p.PDFURL != "https://www.medrxiv.org/content/10.1101/2026.09.25.000003v1.full.pdf" {
+		t.Errorf("expected full.pdf URL, got %q", p.PDFURL)
+	}
+}
