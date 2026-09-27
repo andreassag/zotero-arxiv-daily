@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/ci.yml/badge.svg)](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/ci.yml)
 [![Gitleaks](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/gitleaks.yml)
+[![CodeQL](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/codeql.yml/badge.svg)](https://github.com/andreassag/zotero-arxiv-daily/actions/workflows/codeql.yml)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 
@@ -17,7 +18,7 @@
 - **Built-in Rate Limiting**: Token-bucket rate limiters enforce requests-per-minute (RPM), tokens-per-minute (TPM), and requests-per-day (RPD) to eliminate API throttling and prevent account lockouts.
 - **Rich HTML Email Digest**: Formats abstracts with full Markdown rendering (proper formatting of italics, bolding, math symbols, and code), author affiliations (resolved via OpenAlex and bioRxiv APIs), direct PDF links, and linked code implementations.
 - **Fast, Native Go Engine**: Statically compiled binary with minimal memory footprint and zero external runtime dependencies.
-- **Automated CI/CD & Security**: Includes `govulncheck` vulnerability scanning, `gitleaks` secret detection, `golangci-lint` verification, and multi-platform packaging via `goreleaser`.
+- **Automated CI/CD & Security**: Includes CodeQL advanced static analysis, `govulncheck` vulnerability scanning, `gitleaks` secret detection, `golangci-lint` verification, and multi-platform packaging via `goreleaser`.
 
 ---
 
@@ -96,14 +97,14 @@ source:
 email:
   sender: ${oc.env:SMTP_SENDER}
   receiver: ${oc.env:SMTP_RECEIVER}
-  smtp_server: ${oc.env:SMTP_SERVER,smtp.gmail.com}
-  smtp_port: 587
+  smtp_server: ${oc.env:SMTP_SERVER}
+  smtp_port: ${oc.decode:${oc.env:SMTP_PORT}}
   smtp_username: ${oc.env:SMTP_USERNAME}
   sender_password: ${oc.env:SMTP_PASSWORD}
 
 llm:
   api:
-    key: ${oc.env:GEMINI_API_KEY}
+    key: ${oc.env:LLM_API_KEY}
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
   generation_kwargs:
     model: gemini-3.8-flash
@@ -116,7 +117,7 @@ llm:
 
 reranker:
   api:
-    key: ${oc.env:GEMINI_API_KEY}
+    key: ${oc.env:EMBEDDING_API_KEY}
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     model: gemini-embedding-2
     batch_size: 32
@@ -126,7 +127,7 @@ reranker:
     rpd: 1000
 
 executor:
-  debug: false
+  debug: ${oc.decode:${oc.env:DEBUG}}
   send_empty: false
   max_paper_num: 100
   source: ["arxiv", "biorxiv"]
@@ -193,6 +194,7 @@ make run-no-email
 
 ## Quality & Security
 
+- **Static Analysis & CodeQL**: Automated CodeQL scanning analyzing Go source code for security vulnerabilities and code quality issues.
 - **Vulnerability Auditing**: Integrated `govulncheck` in CI and local workflow checks.
 - **Secret Protection**: Configured `gitleaks-action` in CI and local `pre-commit` hooks to prevent committing secrets or `.env` files.
 - **Conventional Commits**: Enforced via `.githooks/commit-msg` to ensure structured commit history and automated changelogs.
