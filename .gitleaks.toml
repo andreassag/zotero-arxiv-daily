@@ -1,0 +1,23 @@
+# ==============================================================================
+# Gitleaks Configuration
+# https://github.com/gitleaks/gitleaks
+# ==============================================================================
+
+[extend]
+# Extend default gitleaks rules
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for example configurations and mock test fixtures"
+paths = [
+  '''^\.env\.example$''',
+  '''^\.githooks/pre-commit$''',
+]
+regexes = [
+  '''AIzaSyYourGeminiApiKeyHere''',
+  '''your_zotero_api_key_here''',
+  '''your_smtp_password_or_token_here''',
+  '''your_smtp_username_here''',
+  '''fake-key''',
+  '''mock-test-key''',
+]

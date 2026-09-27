@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git commit-msg hook: Enforce Conventional Commits standard
+# ==============================================================================
+set -e
+
+COMMIT_MSG_FILE="$1"
+
+if [ ! -f "$COMMIT_MSG_FILE" ]; then
+    exit 0
+fi
+
+FIRST_LINE=$(head -n 1 "$COMMIT_MSG_FILE" | tr -d '\r')
+
+# Allow merge, revert, fixup, squash commits, or empty messages (git handles empty)
+if [[ "$FIRST_LINE" =~ ^(Merge|Revert|fixup!|squash!) ]] || [ -z "$FIRST_LINE" ]; then
+    exit 0
+fi
+
+# Conventional Commits format:
+# <type>[(optional scope)][!]: <description>
+# Allowed types: feat, feature, fix, chore, docs, style, refactor, perf, test, build, ci, revert
+CONVENTIONAL_REGEX='^(feat|feature|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([a-zA-Z0-9_\.\/-]+\))?!?: .+$'
+
+if ! [[ "$FIRST_LINE" =~ $CONVENTIONAL_REGEX ]]; then
+    echo ""
+    echo -e "\033[1;31m✖ [ERROR] Commit message does not follow Conventional Commits formatting!\033[0m"
+    echo -e "\033[1;33mYour message:\033[0m \"$FIRST_LINE\""
+    echo ""
+    echo -e "Commit messages must adhere to the pattern: \033[1;36m<type>(<scope>): <subject>\033[0m"
+    echo ""
+    echo -e "Valid types:"
+    echo -e "  \033[32mfeat\033[0m / \033[32mfeature\033[0m : A new feature or capability"
+    echo -e "  \033[32mfix\033[0m             : A bug fix"
+    echo -e "  \033[32mchore\033[0m           : Maintenance, build tooling, or dependency updates"
+    echo -e "  \033[32mdocs\033[0m            : Documentation changes only"
+    echo -e "  \033[32mrefactor\033[0m        : Code changes that neither fix a bug nor add a feature"
+    echo -e "  \033[32mtest\033[0m            : Adding or correcting tests"
+    echo -e "  \033[32mperf\033[0m            : Code changes improving performance"
+    echo -e "  \033[32mci\033[0m              : CI/CD configuration and pipeline changes"
+    echo -e "  \033[32mbuild\033[0m           : Build system files or external dependencies"
+    echo -e "  \033[32mstyle\033[0m           : Formatting, missing commas/semicolons, whitespace"
+    echo -e "  \033[32mrevert\033[0m          : Reverts a previously committed change"
+    echo ""
+    echo -e "Examples:"
+    echo -e "  \033[36mfeat(biorxiv): add automated author affiliation extraction\033[0m"
+    echo -e "  \033[36mfix(email): render markdown italic species names in abstracts\033[0m"
+    echo -e "  \033[36mchore: add .golangci.yml and pre-commit hooks\033[0m"
+    echo ""
+    echo -e "\033[2m(To bypass in an emergency, use: git commit --no-verify)\033[0m"
+    echo ""
+    exit 1
+fi
+
+exit 0

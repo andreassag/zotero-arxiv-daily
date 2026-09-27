@@ -1,19 +1,11 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-.vscode/
-*.egg-info
-.env
-
-# Virtual environments
-.venv
-test.ipynb
-
 logs
 models
 test-compose.yml
 outputs
 config/private.yaml
+.env
+config/custom.yaml
+artifacts/
+bin/
+coverage/
+dist/
