@@ -23,5 +23,7 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /zotero-arxiv-daily ./go/cmd/zote
 
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /app/config /config
 COPY --from=builder /zotero-arxiv-daily /zotero-arxiv-daily
 ENTRYPOINT ["/zotero-arxiv-daily"]
+

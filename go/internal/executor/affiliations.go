@@ -18,11 +18,13 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -41,11 +43,30 @@ var (
 	arxivAffiliationRegex = regexp.MustCompile(`(?i)class=["'][^"']*ltx_role_affiliation[^"']*["'][^>]*>(?:<span[^>]*>[^<]*</span>)?([^<]+)`)
 
 	arxivIDRegex = regexp.MustCompile(`(?i)(?:arxiv\.org/(?:abs|pdf)/|oai:arXiv\.org:)?(\d{4}\.\d{4,5}(?:v\d+)?)`)
+	doiRegex     = regexp.MustCompile(`(?i)(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)`)
 )
 
+type openAlexInstitution struct {
+	DisplayName string `json:"display_name"`
+}
+
+type openAlexAuthorship struct {
+	Institutions          []openAlexInstitution `json:"institutions"`
+	RawAffiliationStrings []string              `json:"raw_affiliation_strings"`
+}
+
+type openAlexWork struct {
+	Authorships []openAlexAuthorship `json:"authorships"`
+}
+
+type openAlexResponse struct {
+	Results []openAlexWork `json:"results"`
+}
+
 // ExtractAffiliations determines author affiliations for a paper.
-// It first attempts direct extraction from the paper's web page metadata (fast, authoritative, 0 LLM tokens).
-// If metadata extraction fails or yields no affiliations, it falls back to the LLM client.
+// 1. Attempts direct extraction from the paper's web page metadata (fast, authoritative, 0 LLM tokens).
+// 2. Attempts resolution via the OpenAlex scholarly database API.
+// 3. Falls back to LLM extraction if previous attempts yield no affiliations.
 func ExtractAffiliations(ctx context.Context, httpClient *http.Client, llmClient *llm.Client, p *model.Paper, modelName string) []string {
 	// 1. Try web page extraction
 	if p.URL != "" || p.PDFURL != "" {
@@ -56,7 +77,16 @@ func ExtractAffiliations(ctx context.Context, httpClient *http.Client, llmClient
 		}
 	}
 
-	// 2. Fall back to LLM extraction if LLM client is available
+	// 2. Try OpenAlex lookup
+	if p.Title != "" || p.URL != "" {
+		affs, err := extractFromOpenAlex(ctx, httpClient, p.Title, p.URL, "")
+		if err == nil && len(affs) > 0 {
+			slog.Debug("Extracted affiliations from OpenAlex", "paper", p.Title, "count", len(affs))
+			return affs
+		}
+	}
+
+	// 3. Fall back to LLM extraction if LLM client is available
 	if llmClient != nil {
 		affs, err := llmClient.ExtractAffiliations(ctx, p.Title, p.Authors, p.Abstract, p.FullText, modelName)
 		if err != nil {
@@ -96,6 +126,74 @@ func extractFromURL(ctx context.Context, httpClient *http.Client, pageURL, pdfUR
 
 	// For bioRxiv, medRxiv, and general publishers
 	return fetchAndParse(ctx, httpClient, targetURL, parseMetaInstitutions)
+}
+
+func extractFromOpenAlex(ctx context.Context, httpClient *http.Client, title, paperURL, baseEndpoint string) ([]string, error) {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	endpoint := "https://api.openalex.org/works"
+	if baseEndpoint != "" {
+		endpoint = baseEndpoint
+	}
+
+	var reqURL string
+	if m := doiRegex.FindStringSubmatch(paperURL); len(m) > 1 {
+		reqURL = fmt.Sprintf("%s?filter=doi:%s", endpoint, url.QueryEscape(m[1]))
+	} else if title != "" {
+		reqURL = fmt.Sprintf("%s?search=%s&per-page=1", endpoint, url.QueryEscape(title))
+	} else {
+		return nil, fmt.Errorf("no title or DOI available for OpenAlex lookup")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Zotero-arXiv-Daily/1.0 (mailto:digest@zotero-arxiv-daily.local)")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("openalex status %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var oaResp openAlexResponse
+	if err := json.Unmarshal(bodyBytes, &oaResp); err != nil {
+		return nil, err
+	}
+
+	if len(oaResp.Results) == 0 {
+		return nil, nil
+	}
+
+	var raw []string
+	for _, authorship := range oaResp.Results[0].Authorships {
+		for _, inst := range authorship.Institutions {
+			if strings.TrimSpace(inst.DisplayName) != "" {
+				raw = append(raw, inst.DisplayName)
+			}
+		}
+		if len(authorship.Institutions) == 0 {
+			for _, affStr := range authorship.RawAffiliationStrings {
+				if strings.TrimSpace(affStr) != "" {
+					raw = append(raw, affStr)
+				}
+			}
+		}
+	}
+
+	return cleanAndDeduplicate(raw), nil
 }
 
 func fetchAndParse(ctx context.Context, httpClient *http.Client, targetURL string, parser func(string) []string) ([]string, error) {

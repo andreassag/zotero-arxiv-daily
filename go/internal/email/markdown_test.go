@@ -22,9 +22,9 @@ func TestMarkdownToHTML(t *testing.T) {
 			expected: "Found in <em>S. cerevisiae</em>, and <em>Bacillus subtilis</em>.",
 		},
 		{
-			name:     "Italic in parentheses",
+			name:     "Italic in parentheses with math symbol escaping",
 			input:    "Significant increase (*p* < 0.05) observed.",
-			expected: "Significant increase (<em>p</em> < 0.05) observed.",
+			expected: "Significant increase (<em>p</em> &lt; 0.05) observed.",
 		},
 		{
 			name:     "Bold and italic",
@@ -45,6 +45,16 @@ func TestMarkdownToHTML(t *testing.T) {
 			name:     "Pre-existing HTML tags",
 			input:    "Already has <i>italic</i> and <b>bold</b>.",
 			expected: "Already has <em>italic</em> and <strong>bold</strong>.",
+		},
+		{
+			name:     "Script tag injection sanitization",
+			input:    "Malicious <script>alert('xss')</script> input.",
+			expected: "Malicious &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt; input.",
+		},
+		{
+			name:     "Dangerous link scheme sanitization",
+			input:    "Click [here](javascript:alert(1)) to continue.",
+			expected: "Click here to continue.",
 		},
 	}
 

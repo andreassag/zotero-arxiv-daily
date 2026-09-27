@@ -31,9 +31,21 @@ import (
 	_ "github.com/exTerEX/zotero-arxiv-daily/go/internal/retriever"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	versionFlag := flag.Bool("version", false, "Print application version information and exit")
 	configPath := flag.String("config", "config", "Path to configuration directory (containing base.yaml and custom.yaml) or a single config file")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("zotero-arxiv-daily version %s (commit %s, built at %s)\n", version, commit, date)
+		os.Exit(0)
+	}
 
 	// Load configuration
 	var cfg *config.Config

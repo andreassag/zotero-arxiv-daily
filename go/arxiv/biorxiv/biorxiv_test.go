@@ -92,14 +92,21 @@ func TestFetchPapersEmptyCollection(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(WithBaseURL(server.URL))
+	rssServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"></rdf:RDF>`))
+	}))
+	defer rssServer.Close()
+
+	client := NewClient(WithBaseURL(server.URL), WithRSSBaseURL(rssServer.URL))
 
 	papers, err := client.FetchPapers(context.Background(), []string{"Bioinformatics"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if papers != nil {
-		t.Errorf("expected nil papers for empty collection, got %v", papers)
+	if len(papers) != 0 {
+		t.Errorf("expected 0 papers for empty collection, got %d", len(papers))
 	}
 }
 

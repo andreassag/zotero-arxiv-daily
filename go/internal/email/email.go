@@ -19,6 +19,7 @@ package email
 import (
 	"crypto/tls"
 	"fmt"
+	"html"
 	"net/smtp"
 	"strings"
 	"time"
@@ -26,6 +27,15 @@ import (
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/config"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/model"
 )
+
+func safeHref(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://") {
+		return html.EscapeString(trimmed)
+	}
+	return "#"
+}
 
 // RenderEmail generates a beautiful modern material/minimalist HTML email from the list of papers.
 func RenderEmail(papers []model.Paper) string {
@@ -46,11 +56,15 @@ func RenderEmail(papers []model.Paper) string {
 		// Clean affiliations
 		affBlock := ""
 		if len(p.Affiliations) > 0 {
+			var escapedAffs []string
+			for _, a := range p.Affiliations {
+				escapedAffs = append(escapedAffs, html.EscapeString(a))
+			}
 			var affStr string
-			if len(p.Affiliations) <= 5 {
-				affStr = strings.Join(p.Affiliations, "; ")
+			if len(escapedAffs) <= 5 {
+				affStr = strings.Join(escapedAffs, "; ")
 			} else {
-				affStr = strings.Join(p.Affiliations[:5], "; ") + ", ..."
+				affStr = strings.Join(escapedAffs[:5], "; ") + ", ..."
 			}
 			affBlock = fmt.Sprintf(`<div style="font-size: 13px; color: #64748b; margin-top: 4px; line-height: 1.4;"><span style="margin-right: 4px;">🏛️</span>%s</div>`, affStr)
 		}
@@ -100,9 +114,9 @@ func RenderEmail(papers []model.Paper) string {
 		// Action buttons
 		webButton := ""
 		if p.URL != "" && p.URL != p.PDFURL {
-			webButton = fmt.Sprintf(`<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 13px; font-weight: 600; color: #334155; background-color: #f1f5f9; padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; transition: background-color 0.2s;">Web Page</a>`, p.URL)
+			webButton = fmt.Sprintf(`<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 13px; font-weight: 600; color: #334155; background-color: #f1f5f9; padding: 8px 16px; border-radius: 6px; border: 1px solid #cbd5e1; transition: background-color 0.2s;">Web Page</a>`, safeHref(p.URL))
 		}
-		pdfButton := fmt.Sprintf(`<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 13px; font-weight: 700; color: #ffffff; background-color: #dc2626; padding: 8px 20px; border-radius: 6px; box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2); transition: background-color 0.2s;">PDF</a>`, p.PDFURL)
+		pdfButton := fmt.Sprintf(`<a href="%s" target="_blank" style="display: inline-block; text-decoration: none; font-size: 13px; font-weight: 700; color: #ffffff; background-color: #dc2626; padding: 8px 20px; border-radius: 6px; box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2); transition: background-color 0.2s;">PDF</a>`, safeHref(p.PDFURL))
 
 		block := fmt.Sprintf(`
 		<div style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); margin-bottom: 24px; padding: 24px; border: 1px solid #eaeaea; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -124,7 +138,7 @@ func RenderEmail(papers []model.Paper) string {
 				%s
 				%s
 			</div>
-		</div>`, formattedTitle, authors, affBlock, p.Score, stars, tldrBlock, abstractBlock, pdfButton, webButton)
+		</div>`, formattedTitle, html.EscapeString(authors), affBlock, p.Score, stars, tldrBlock, abstractBlock, pdfButton, webButton)
 
 		cardBlocks = append(cardBlocks, block)
 	}
@@ -238,7 +252,7 @@ func SendEmail(cfg config.EmailConfig, html string) error {
 
 	// Format From/To fields safely
 	mimeHeaders := fmt.Sprintf("MIME-Version: 1.0\r\n"+
-		"From: Github Action <%s>\r\n"+
+		"From: GitHub Action <%s>\r\n"+
 		"To: You <%s>\r\n"+
 		"Subject: %s\r\n"+
 		"Content-Type: text/html; charset=UTF-8\r\n\r\n", cfg.Sender, cfg.Receiver, subject)
@@ -285,6 +299,8 @@ func SendEmail(cfg config.EmailConfig, html string) error {
 		if err = client.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("STARTTLS failed: %w", err)
 		}
+	} else if cfg.SMTPPort != 25 {
+		return fmt.Errorf("SMTP server %s does not support STARTTLS; refusing to transmit credentials in cleartext", cfg.SMTPServer)
 	}
 
 	if err = client.Auth(auth); err != nil {

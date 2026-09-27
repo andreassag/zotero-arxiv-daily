@@ -104,3 +104,17 @@ func TestContextCancel(t *testing.T) {
 		t.Fatal("expected context deadline error, got nil")
 	}
 }
+
+func TestOversizedTokens(t *testing.T) {
+	limiter := New("TestOversized", Config{
+		TPM: 100,
+	})
+
+	err := limiter.Acquire(context.Background(), 200)
+	if err == nil {
+		t.Fatal("expected error for request exceeding TPM, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum configured TPM") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

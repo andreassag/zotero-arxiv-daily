@@ -96,3 +96,38 @@ func TestExtractAffiliations_HTML(t *testing.T) {
 		t.Errorf("ExtractAffiliations() = %v, want %v", affs, expected)
 	}
 }
+
+func TestExtractFromOpenAlex(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"results": [
+				{
+					"authorships": [
+						{
+							"institutions": [
+								{"display_name": "Stanford University"}
+							]
+						},
+						{
+							"institutions": [],
+							"raw_affiliation_strings": ["MIT Media Lab, Cambridge, MA"]
+						}
+					]
+				}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	affs, err := extractFromOpenAlex(context.Background(), server.Client(), "Test Paper", "https://doi.org/10.1101/2026.01.01", server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{"Stanford University", "MIT Media Lab, Cambridge, MA"}
+	if !reflect.DeepEqual(affs, expected) {
+		t.Errorf("extractFromOpenAlex() = %v, want %v", affs, expected)
+	}
+}

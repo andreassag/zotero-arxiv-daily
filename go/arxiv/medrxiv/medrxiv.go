@@ -211,7 +211,7 @@ func (c *Client) fetchFromAPI(ctx context.Context, categories []string) ([]Paper
 	}
 
 	if len(result.Collection) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("API returned empty collection")
 	}
 
 	// Find the latest date in the collection.
@@ -222,7 +222,7 @@ func (c *Client) fetchFromAPI(ctx context.Context, categories []string) ([]Paper
 		}
 	}
 	if len(dates) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("API returned collection with no valid dates")
 	}
 
 	sortedDates := make([]string, 0, len(dates))

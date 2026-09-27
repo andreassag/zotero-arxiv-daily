@@ -83,6 +83,10 @@ func (l *Limiter) Acquire(ctx context.Context, estimatedTokens int) error {
 		estimatedTokens = 1
 	}
 
+	if l.cfg.TPM > 0 && estimatedTokens > l.cfg.TPM {
+		return fmt.Errorf("[%s] request estimated tokens (%d) exceeds maximum configured TPM (%d)", l.name, estimatedTokens, l.cfg.TPM)
+	}
+
 	for {
 		l.mu.Lock()
 		now := time.Now()

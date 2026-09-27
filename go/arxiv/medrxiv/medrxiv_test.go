@@ -128,3 +128,29 @@ func TestMedrxivFetchPapersRSSFallback(t *testing.T) {
 		t.Errorf("expected full.pdf URL, got %q", p.PDFURL)
 	}
 }
+
+func TestMedrxivFetchPapersEmptyCollection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"messages":[{"status":"ok"}],"collection":[]}`))
+	}))
+	defer server.Close()
+
+	rssServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(mockMedrxivRSS))
+	}))
+	defer rssServer.Close()
+
+	client := NewClient(WithBaseURL(server.URL), WithRSSBaseURL(rssServer.URL))
+
+	papers, err := client.FetchPapers(context.Background(), []string{"Neurology"})
+	if err != nil {
+		t.Fatalf("expected no error with RSS fallback, got: %v", err)
+	}
+	if len(papers) != 1 {
+		t.Fatalf("expected 1 paper from RSS fallback, got %d", len(papers))
+	}
+}

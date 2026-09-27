@@ -16,14 +16,14 @@ source:
 email:
   sender: ${oc.env:SMTP_SENDER}
   receiver: ${oc.env:SMTP_RECEIVER}
-  smtp_server: smtp.tem.scaleway.com
-  smtp_port: 587
+  smtp_server: ${oc.env:SMTP_SERVER}
+  smtp_port: ${oc.decode:${oc.env:SMTP_PORT}}
   smtp_username: ${oc.env:SMTP_USERNAME}
   sender_password: ${oc.env:SMTP_PASSWORD}
 
 llm:
   api:
-    key: ${oc.env:GEMINI_API_KEY}
+    key: ${oc.env:LLM_API_KEY}
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
   generation_kwargs:
     model: gemini-3.8-flash
@@ -36,7 +36,7 @@ llm:
 
 reranker:
   api:
-    key: ${oc.env:GEMINI_API_KEY}
+    key: ${oc.env:EMBEDDING_API_KEY}
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     model: gemini-embedding-2
     batch_size: 32

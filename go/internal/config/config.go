@@ -205,14 +205,7 @@ func LoadConfigFromDir(configDir string) (*Config, error) {
 		}
 	}
 
-	// Apply default SMTP user if not set
-	if cfg.Email.SMTPUser == "" {
-		if cfg.Email.SMTPUsername != "" {
-			cfg.Email.SMTPUser = cfg.Email.SMTPUsername
-		} else {
-			cfg.Email.SMTPUser = cfg.Email.Sender
-		}
-	}
+	applyConfigDefaultsAndFallbacks(&cfg)
 
 	// Validation checks
 	if cfg.Zotero.UserID == "???" || cfg.Zotero.UserID == "" {
@@ -236,13 +229,7 @@ func LoadConfigFromFile(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if cfg.Email.SMTPUser == "" {
-		if cfg.Email.SMTPUsername != "" {
-			cfg.Email.SMTPUser = cfg.Email.SMTPUsername
-		} else {
-			cfg.Email.SMTPUser = cfg.Email.Sender
-		}
-	}
+	applyConfigDefaultsAndFallbacks(&cfg)
 
 	// Validation checks
 	if cfg.Zotero.UserID == "???" || cfg.Zotero.UserID == "" {
@@ -253,6 +240,36 @@ func LoadConfigFromFile(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func applyConfigDefaultsAndFallbacks(cfg *Config) {
+	if cfg.Email.SMTPUser == "" {
+		if cfg.Email.SMTPUsername != "" {
+			cfg.Email.SMTPUser = cfg.Email.SMTPUsername
+		} else {
+			cfg.Email.SMTPUser = cfg.Email.Sender
+		}
+	}
+
+	if cfg.LLM.API.Key == "" {
+		if k := os.Getenv("LLM_API_KEY"); k != "" {
+			cfg.LLM.API.Key = k
+		} else if k := os.Getenv("GEMINI_API_KEY"); k != "" {
+			cfg.LLM.API.Key = k
+		} else if k := os.Getenv("OPENAI_API_KEY"); k != "" {
+			cfg.LLM.API.Key = k
+		}
+	}
+
+	if cfg.Reranker.API.Key == "" {
+		if k := os.Getenv("EMBEDDING_API_KEY"); k != "" {
+			cfg.Reranker.API.Key = k
+		} else if cfg.LLM.API.Key != "" {
+			cfg.Reranker.API.Key = cfg.LLM.API.Key
+		} else if k := os.Getenv("GEMINI_API_KEY"); k != "" {
+			cfg.Reranker.API.Key = k
+		}
+	}
 }
 
 func readAndExpandFile(path string) ([]byte, error) {

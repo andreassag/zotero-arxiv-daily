@@ -50,7 +50,7 @@ test-coverage: ## Run all unit tests and generate coverage report
 	@echo "Coverage report generated at coverage/coverage.html"
 
 fmt: ## Format Go source code with gofmt
-	gofmt -s -w .
+	find go -name "*.go" -exec gofmt -s -w {} +
 
 vet: ## Run go vet on codebase
 	go vet ./...
