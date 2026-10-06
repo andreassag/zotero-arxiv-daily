@@ -3,7 +3,7 @@ module github.com/exTerEX/zotero-arxiv-daily
 go 1.26
 
 require (
-	github.com/openai/openai-go/v3 v3.66.0
+	github.com/openai/openai-go/v3 v3.71.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
