@@ -221,6 +221,11 @@ func TestFetchPapersUnpaddedDateSorting(t *testing.T) {
 
 	client := NewClient(WithBaseURL(server.URL))
 
+	parsed, ok := parseDate("2026-8-19")
+	if !ok || parsed.Format("2006-01-02") != "2026-08-19" {
+		t.Fatal("expected unpadded date to parse as 2026-08-19")
+	}
+
 	papers, err := client.FetchPapers(context.Background(), []string{"Bioinformatics"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
