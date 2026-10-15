@@ -322,11 +322,16 @@ func sendMailThroughClient(client *smtp.Client, sender, receiver string, msg []b
 	if err != nil {
 		return fmt.Errorf("failed to open SMTP DATA write channel: %w", err)
 	}
-	defer w.Close()
 
 	if _, err = w.Write(msg); err != nil {
+		_ = w.Close()
 		return fmt.Errorf("failed to write message body: %w", err)
 	}
 
-	return client.Quit()
+	if err = w.Close(); err != nil {
+		return fmt.Errorf("failed to finalize SMTP DATA: %w", err)
+	}
+
+	_ = client.Quit()
+	return nil
 }
