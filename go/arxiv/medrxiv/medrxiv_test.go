@@ -154,3 +154,51 @@ func TestMedrxivFetchPapersEmptyCollection(t *testing.T) {
 		t.Fatalf("expected 1 paper from RSS fallback, got %d", len(papers))
 	}
 }
+
+const mockMedrxivUnpaddedDateJSON = `{
+  "messages": [{"status": "ok"}],
+  "collection": [
+    {
+      "doi": "10.1101/2026.08.19.000003",
+      "title": "Old Medrxiv Paper",
+      "authors": "Old, A.",
+      "abstract": "Abstract Old",
+      "date": "2026-8-19",
+      "category": "Psychiatry",
+      "version": "1"
+    },
+    {
+      "doi": "10.1101/2026.10.15.000004",
+      "title": "New Medrxiv Paper",
+      "authors": "New, B.",
+      "abstract": "Abstract New",
+      "date": "2026-10-15",
+      "category": "Neurology",
+      "version": "1"
+    }
+  ]
+}`
+
+func TestMedrxivFetchPapersUnpaddedDateSorting(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(mockMedrxivUnpaddedDateJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient(WithBaseURL(server.URL))
+
+	papers, err := client.FetchPapers(context.Background(), []string{"Neurology"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(papers) != 1 {
+		t.Fatalf("expected 1 paper from 2026-10-15, got %d", len(papers))
+	}
+
+	if papers[0].Title != "New Medrxiv Paper" {
+		t.Errorf("expected 'New Medrxiv Paper', got %q", papers[0].Title)
+	}
+}

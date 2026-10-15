@@ -214,22 +214,24 @@ func (c *Client) fetchFromAPI(ctx context.Context, categories []string) ([]Paper
 		return nil, fmt.Errorf("API returned empty collection")
 	}
 
-	// Find the latest date in the collection.
-	dates := make(map[string]bool)
+	// Find the latest date in the collection using parsed chronological comparison.
+	dates := make(map[time.Time]bool)
 	for _, item := range result.Collection {
-		if item.Date != "" {
-			dates[item.Date] = true
+		if t, ok := parseDate(item.Date); ok {
+			dates[t] = true
 		}
 	}
 	if len(dates) == 0 {
 		return nil, fmt.Errorf("API returned collection with no valid dates")
 	}
 
-	sortedDates := make([]string, 0, len(dates))
+	sortedDates := make([]time.Time, 0, len(dates))
 	for date := range dates {
 		sortedDates = append(sortedDates, date)
 	}
-	sort.Strings(sortedDates)
+	sort.Slice(sortedDates, func(i, j int) bool {
+		return sortedDates[i].Before(sortedDates[j])
+	})
 	latestDate := sortedDates[len(sortedDates)-1]
 
 	// Case-insensitive category filter.
@@ -240,7 +242,8 @@ func (c *Client) fetchFromAPI(ctx context.Context, categories []string) ([]Paper
 
 	var papers []Paper
 	for _, item := range result.Collection {
-		if item.Date != latestDate {
+		t, ok := parseDate(item.Date)
+		if !ok || !t.Equal(latestDate) {
 			continue
 		}
 		if !allowedCategories[strings.ToLower(item.Category)] {
@@ -352,12 +355,11 @@ func (c *Client) fetchFromRSS(ctx context.Context, categories []string) ([]Paper
 		return nil, nil
 	}
 
-	// Group and find dates
-	dates := make(map[string]int)
+	// Group and find dates using parsed chronological comparison.
+	dates := make(map[time.Time]int)
 	for _, itm := range allItems {
-		d := strings.TrimSpace(itm.item.Date)
-		if d != "" {
-			dates[d]++
+		if t, ok := parseDate(itm.item.Date); ok {
+			dates[t]++
 		}
 	}
 
@@ -365,16 +367,18 @@ func (c *Client) fetchFromRSS(ctx context.Context, categories []string) ([]Paper
 		return nil, nil
 	}
 
-	sortedDates := make([]string, 0, len(dates))
+	sortedDates := make([]time.Time, 0, len(dates))
 	for d := range dates {
 		sortedDates = append(sortedDates, d)
 	}
-	sort.Strings(sortedDates)
+	sort.Slice(sortedDates, func(i, j int) bool {
+		return sortedDates[i].Before(sortedDates[j])
+	})
 
 	// Filter by latest date(s)
 	// If the latest date has < 5 papers and a previous date exists, include both dates.
 	latestDate := sortedDates[len(sortedDates)-1]
-	allowedDates := map[string]bool{latestDate: true}
+	allowedDates := map[time.Time]bool{latestDate: true}
 	if dates[latestDate] < 5 && len(sortedDates) > 1 {
 		prevDate := sortedDates[len(sortedDates)-2]
 		allowedDates[prevDate] = true
@@ -382,8 +386,8 @@ func (c *Client) fetchFromRSS(ctx context.Context, categories []string) ([]Paper
 
 	var papers []Paper
 	for _, ci := range allItems {
-		d := strings.TrimSpace(ci.item.Date)
-		if !allowedDates[d] {
+		t, ok := parseDate(ci.item.Date)
+		if !ok || !allowedDates[t] {
 			continue
 		}
 
@@ -461,4 +465,26 @@ func parseAuthors(creator string) []string {
 		authors = append(authors, p)
 	}
 	return authors
+}
+
+// parseDate parses a date string supporting multiple standard and non-standard formats (e.g. "YYYY-MM-DD", "YYYY-M-D").
+func parseDate(d string) (time.Time, bool) {
+	d = strings.TrimSpace(d)
+	if d == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		"2006-01-02",
+		"2006-1-2",
+		"2006-01-2",
+		"2006-1-02",
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, d); err == nil {
+			return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC), true
+		}
+	}
+	return time.Time{}, false
 }

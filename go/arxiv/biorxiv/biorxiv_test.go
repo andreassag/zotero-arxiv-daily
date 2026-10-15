@@ -186,3 +186,52 @@ func TestFetchPapersRSSFallback(t *testing.T) {
 		t.Errorf("expected full.pdf URL, got %q", p.PDFURL)
 	}
 }
+
+const mockBiorxivUnpaddedDateJSON = `{
+  "messages": [{"status": "ok"}],
+  "collection": [
+    {
+      "doi": "10.1101/2026.08.19.000001",
+      "title": "Old Paper with Single-Digit Month",
+      "authors": "Old, A.",
+      "abstract": "Abstract Old",
+      "date": "2026-8-19",
+      "category": "Neuroscience",
+      "version": "1"
+    },
+    {
+      "doi": "10.1101/2026.10.15.000002",
+      "title": "New Paper with Double-Digit Month",
+      "authors": "New, B.",
+      "abstract": "Abstract New",
+      "date": "2026-10-15",
+      "category": "Bioinformatics",
+      "version": "1"
+    }
+  ]
+}`
+
+func TestFetchPapersUnpaddedDateSorting(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(mockBiorxivUnpaddedDateJSON))
+	}))
+	defer server.Close()
+
+	client := NewClient(WithBaseURL(server.URL))
+
+	papers, err := client.FetchPapers(context.Background(), []string{"Bioinformatics"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// 2026-10-15 should be recognized as newer than 2026-8-19 despite ASCII '8' > '1'.
+	if len(papers) != 1 {
+		t.Fatalf("expected 1 paper from 2026-10-15, got %d", len(papers))
+	}
+
+	if papers[0].Title != "New Paper with Double-Digit Month" {
+		t.Errorf("expected 'New Paper with Double-Digit Month', got %q", papers[0].Title)
+	}
+}
