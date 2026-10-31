@@ -167,7 +167,7 @@ func extractFromOpenAlex(ctx context.Context, httpClient *http.Client, title, pa
 		return nil, fmt.Errorf("openalex status %d", resp.StatusCode)
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +201,11 @@ func extractFromOpenAlex(ctx context.Context, httpClient *http.Client, title, pa
 }
 
 func fetchAndParse(ctx context.Context, httpClient *http.Client, targetURL string, parser func(string) []string) ([]string, error) {
+	u, err := url.Parse(targetURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return nil, fmt.Errorf("invalid or non-http/https URL: %s", targetURL)
+	}
+
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}

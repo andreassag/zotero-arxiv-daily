@@ -20,7 +20,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const mockEmbeddingResponse = `{
@@ -119,6 +121,34 @@ func TestLLMExtractAffiliations(t *testing.T) {
 
 	if len(affs) != 2 || affs[0] != "University of Washington" || affs[1] != "Stanford University" {
 		t.Errorf("expected UW and Stanford, got %v", affs)
+	}
+}
+
+func TestExtractJSONArrayWithInnerBrackets(t *testing.T) {
+	content := `Sure! Here are the affiliations:
+["Dept of Computer Science [CS], MIT", "Stanford [BioE] Dept"]
+Hope this helps!`
+
+	arr, err := extractJSONArray(content)
+	if err != nil {
+		t.Fatalf("extractJSONArray failed: %v", err)
+	}
+
+	expected := `["Dept of Computer Science [CS], MIT", "Stanford [BioE] Dept"]`
+	if arr != expected {
+		t.Errorf("extractJSONArray = %q, want %q", arr, expected)
+	}
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	// 4-byte runes (emojis)
+	s := strings.Repeat("🏛️", 100) // each emoji is multiple bytes
+	truncated := truncateUTF8(s, 10)
+	if !utf8.ValidString(truncated) {
+		t.Errorf("truncateUTF8 produced invalid UTF-8 string: %q", truncated)
+	}
+	if utf8.RuneCountInString(truncated) != 10 {
+		t.Errorf("expected 10 runes, got %d", utf8.RuneCountInString(truncated))
 	}
 }
 

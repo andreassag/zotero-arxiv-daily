@@ -93,6 +93,19 @@ func TestExpandEnv(t *testing.T) {
 	}
 }
 
+func TestExpandEnv_NoRecursiveExpansion(t *testing.T) {
+	// A password or secret containing '${foo}' must NOT be re-evaluated as an env var template
+	t.Setenv("SPECIAL_PASSWORD", "p@ss${word}123")
+	t.Setenv("word", "SHOULD_NOT_BE_USED")
+
+	input := "password: ${oc.env:SPECIAL_PASSWORD}"
+	got := ExpandEnv(input)
+	want := "password: p@ss${word}123"
+	if got != want {
+		t.Errorf("ExpandEnv recursively expanded env var value.\nGot:  %q\nWant: %q", got, want)
+	}
+}
+
 func TestLoadConfigFromDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -204,5 +217,84 @@ reranker:
 	}
 	if cfg.Reranker.RateLimit.RPM != 100 || cfg.Reranker.RateLimit.TPM != 30000 || cfg.Reranker.RateLimit.RPD != 1000 {
 		t.Errorf("unexpected Reranker rate limits: %+v", cfg.Reranker.RateLimit)
+	}
+}
+
+func TestConfigFallbacks(t *testing.T) {
+	t.Setenv("LLM_BASE_URL", "https://custom.llm.api/v1")
+	t.Setenv("LLM_MODEL", "custom-llm-model")
+	t.Setenv("EMBEDDING_BASE_URL", "https://custom.embedding.api/v1")
+	t.Setenv("EMBEDDING_MODEL", "custom-emb-model")
+	t.Setenv("SMTP_PORT", "2525")
+	t.Setenv("SMTP_SERVER", "mail.fallback.org")
+	t.Setenv("SMTP_SENDER", "bot@fallback.org")
+	t.Setenv("SMTP_RECEIVER", "user@fallback.org")
+	t.Setenv("SMTP_PASSWORD", "secret123")
+
+	minimalYAML := `
+zotero:
+  user_id: "123"
+  api_key: "key"
+`
+	tmpDir := t.TempDir()
+	p := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(p, []byte(minimalYAML), 0644); err != nil {
+		t.Fatalf("failed to write config.yaml: %v", err)
+	}
+
+	cfg, err := LoadConfigFromFile(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.LLM.API.BaseURL != "https://custom.llm.api/v1" {
+		t.Errorf("expected LLM base URL from env fallback, got %q", cfg.LLM.API.BaseURL)
+	}
+	if cfg.LLM.GenerationKwargs.Model != "custom-llm-model" {
+		t.Errorf("expected LLM model from env fallback, got %q", cfg.LLM.GenerationKwargs.Model)
+	}
+	if cfg.Reranker.API.BaseURL != "https://custom.embedding.api/v1" {
+		t.Errorf("expected Reranker base URL from env fallback, got %q", cfg.Reranker.API.BaseURL)
+	}
+	if cfg.Reranker.API.Model != "custom-emb-model" {
+		t.Errorf("expected Reranker model from env fallback, got %q", cfg.Reranker.API.Model)
+	}
+	if cfg.Email.SMTPPort != 2525 {
+		t.Errorf("expected SMTPPort 2525 from env fallback, got %d", cfg.Email.SMTPPort)
+	}
+	if cfg.Email.SMTPServer != "mail.fallback.org" {
+		t.Errorf("expected SMTPServer 'mail.fallback.org', got %q", cfg.Email.SMTPServer)
+	}
+	if cfg.Email.Sender != "bot@fallback.org" {
+		t.Errorf("expected Sender 'bot@fallback.org', got %q", cfg.Email.Sender)
+	}
+	if cfg.Email.Receiver != "user@fallback.org" {
+		t.Errorf("expected Receiver 'user@fallback.org', got %q", cfg.Email.Receiver)
+	}
+	if cfg.Email.SenderPassword != "secret123" {
+		t.Errorf("expected SenderPassword 'secret123', got %q", cfg.Email.SenderPassword)
+	}
+}
+
+func TestGetEnvAsBool(t *testing.T) {
+	t.Setenv("TEST_BOOL_TRUE", "true")
+	t.Setenv("TEST_BOOL_1", "1")
+	t.Setenv("TEST_BOOL_FALSE", "false")
+	t.Setenv("TEST_BOOL_INVALID", "invalid")
+
+	if !GetEnvAsBool("TEST_BOOL_TRUE", false) {
+		t.Errorf("expected true for 'true'")
+	}
+	if !GetEnvAsBool("TEST_BOOL_1", false) {
+		t.Errorf("expected true for '1'")
+	}
+	if GetEnvAsBool("TEST_BOOL_FALSE", true) {
+		t.Errorf("expected false for 'false'")
+	}
+	if !GetEnvAsBool("TEST_BOOL_UNSET", true) {
+		t.Errorf("expected default true for unset var")
+	}
+	if !GetEnvAsBool("TEST_BOOL_INVALID", true) {
+		t.Errorf("expected default true for invalid var")
 	}
 }

@@ -218,16 +218,34 @@ func (e *Executor) Run(ctx context.Context) error {
 
 		// 5. Generate TL;DRs and extract affiliations
 		slog.Info("Generating TL;DRs and affiliations...")
+		var llmDisabled bool
 		for i := range rankedPapers {
-			tldr, err := e.llmClient.GenerateTLDR(ctx, rankedPapers[i].Title, rankedPapers[i].Abstract, e.cfg.LLM.Language, e.cfg.LLM.GenerationKwargs.Model, e.cfg.LLM.GenerationKwargs.MaxTokens)
-			if err != nil {
-				slog.Warn("Failed to generate TL;DR, falling back to abstract", "paper", rankedPapers[i].Title, "error", err)
-				rankedPapers[i].TLDR = rankedPapers[i].Abstract
-			} else {
-				rankedPapers[i].TLDR = tldr
+			if ctx.Err() != nil {
+				slog.Warn("Context canceled, skipping remaining LLM operations", "error", ctx.Err())
+				break
 			}
 
-			affs := ExtractAffiliations(ctx, e.httpClient, e.llmClient, &rankedPapers[i], e.cfg.LLM.GenerationKwargs.Model)
+			if !llmDisabled {
+				tldr, err := e.llmClient.GenerateTLDR(ctx, rankedPapers[i].Title, rankedPapers[i].Abstract, e.cfg.LLM.Language, e.cfg.LLM.GenerationKwargs.Model, e.cfg.LLM.GenerationKwargs.MaxTokens)
+				if err != nil {
+					slog.Warn("Failed to generate TL;DR, falling back to abstract", "paper", rankedPapers[i].Title, "error", err)
+					rankedPapers[i].TLDR = rankedPapers[i].Abstract
+					if strings.Contains(err.Error(), "daily request limit") || strings.Contains(err.Error(), "RPD") || ctx.Err() != nil {
+						slog.Warn("LLM rate limit or quota exhausted, disabling further LLM calls for this run")
+						llmDisabled = true
+					}
+				} else {
+					rankedPapers[i].TLDR = tldr
+				}
+			} else {
+				rankedPapers[i].TLDR = rankedPapers[i].Abstract
+			}
+
+			currentLLM := e.llmClient
+			if llmDisabled {
+				currentLLM = nil
+			}
+			affs := ExtractAffiliations(ctx, e.httpClient, currentLLM, &rankedPapers[i], e.cfg.LLM.GenerationKwargs.Model)
 			rankedPapers[i].Affiliations = affs
 		}
 	}
@@ -281,26 +299,28 @@ func (e *Executor) filterCorpus(corpus []model.CorpusPaper) []model.CorpusPaper 
 }
 
 func (e *Executor) handleEmailSending(ctx context.Context, papers []model.Paper) error {
+	emailHTML := email.RenderEmail(papers)
+
+	// Save to local file if SAVE_EMAIL_PATH is set (for debugging / testing)
+	if rawPath := os.Getenv("SAVE_EMAIL_PATH"); rawPath != "" {
+		savePath := filepath.Clean(rawPath)
+		if dir := filepath.Dir(savePath); dir != "." && dir != "" {
+			_ = os.MkdirAll(dir, 0755)
+		}
+		if err := os.WriteFile(savePath, []byte(emailHTML), 0600); err != nil {
+			slog.Error("Failed to save email output to file", "path", savePath, "error", err)
+		} else {
+			slog.Info("Saved email content to local file", "path", savePath)
+		}
+	}
+
 	if len(papers) == 0 && !e.cfg.Executor.SendEmpty {
-		slog.Info("No new papers to send, skipping email.")
+		slog.Info("No new papers to send, skipping email dispatch.")
 		return nil
 	}
 
-	emailHTML := email.RenderEmail(papers)
-
-	noEmail := strings.ToLower(os.Getenv("NO_EMAIL"))
-	if noEmail == "true" || noEmail == "1" || noEmail == "yes" {
-		slog.Info("NO_EMAIL environment variable set. Skipping email dispatch.")
-
-		rawPath := os.Getenv("SAVE_EMAIL_PATH")
-		if rawPath != "" {
-			savePath := filepath.Clean(rawPath)
-			if err := os.WriteFile(savePath, []byte(emailHTML), 0600); err != nil {
-				slog.Error("Failed to save email output to file", "path", savePath, "error", err)
-			} else {
-				slog.Info("Saved email content to local file", "path", savePath)
-			}
-		}
+	if config.GetEnvAsBool("NO_EMAIL", false) {
+		slog.Info("NO_EMAIL set. Skipping email dispatch.")
 		return nil
 	}
 

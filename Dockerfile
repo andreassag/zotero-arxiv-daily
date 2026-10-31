@@ -25,5 +25,6 @@ FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/config /config
 COPY --from=builder /zotero-arxiv-daily /zotero-arxiv-daily
+USER 65532:65532
 ENTRYPOINT ["/zotero-arxiv-daily"]
 

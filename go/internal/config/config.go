@@ -100,12 +100,10 @@ type RerankerConfig struct {
 }
 
 type ExecutorConfig struct {
-	Debug         bool     `yaml:"debug"`
-	SendEmpty     bool     `yaml:"send_empty"`
-	MaxPaperNum   int      `yaml:"max_paper_num"`
-	Sources       []string `yaml:"source"`
-	Reranker      string   `yaml:"reranker"`
-	TokenizerType string   `yaml:"tokenizer_type"`
+	Debug       bool     `yaml:"debug"`
+	SendEmpty   bool     `yaml:"send_empty"`
+	MaxPaperNum int      `yaml:"max_paper_num"`
+	Sources     []string `yaml:"source"`
 }
 
 type Config struct {
@@ -133,7 +131,11 @@ func isDigits(s string) bool {
 }
 
 // ExpandEnv replaces env placeholders in YAML content, resolving nested and default expressions.
+// Resolved environment variable values containing "${" are protected to prevent recursive re-expansion.
 func ExpandEnv(content string) string {
+	placeholders := make(map[string]string)
+	placeholderCounter := 0
+
 	for i := 0; i < 10; i++ {
 		if !innermostEnvRegex.MatchString(content) {
 			break
@@ -146,27 +148,59 @@ func ExpandEnv(content string) string {
 			parts := strings.SplitN(inner, ",", 2)
 			varName := strings.TrimSpace(parts[0])
 
+			var resolvedVal string
+			var hasResolved bool
+
 			val, exists := os.LookupEnv(varName)
 			if exists && val != "" {
-				return val
-			}
-
-			if len(parts) == 2 {
+				resolvedVal = val
+				hasResolved = true
+			} else if len(parts) == 2 {
 				defVal := strings.TrimSpace(parts[1])
 				if defVal == "null" {
-					return ""
+					resolvedVal = ""
+				} else {
+					resolvedVal = defVal
 				}
-				return defVal
+				hasResolved = true
+			} else if varName == "true" || varName == "false" || isDigits(varName) {
+				resolvedVal = varName
+				hasResolved = true
 			}
 
-			if varName == "true" || varName == "false" || isDigits(varName) {
-				return varName
+			if hasResolved {
+				// If the resolved value contains "${", protect it from re-expansion in outer passes
+				if strings.Contains(resolvedVal, "${") {
+					placeholderCounter++
+					ph := fmt.Sprintf("\x00ENV_VAL_%d\x00", placeholderCounter)
+					placeholders[ph] = resolvedVal
+					return ph
+				}
+				return resolvedVal
 			}
 
 			return ""
 		})
 	}
+
+	for ph, val := range placeholders {
+		content = strings.ReplaceAll(content, ph, val)
+	}
+
 	return content
+}
+
+func finalizeAndValidate(cfg *Config) error {
+	applyConfigDefaultsAndFallbacks(cfg)
+
+	if cfg.Zotero.UserID == "???" || cfg.Zotero.UserID == "" {
+		return fmt.Errorf("zotero.user_id is required and not configured")
+	}
+	if cfg.Zotero.APIKey == "???" || cfg.Zotero.APIKey == "" {
+		return fmt.Errorf("zotero.api_key is required and not configured")
+	}
+
+	return nil
 }
 
 // LoadConfigFromDir loads config files from configDir, merging base.yaml (or default.yaml / config.yaml) and custom.yaml (if present)
@@ -205,14 +239,8 @@ func LoadConfigFromDir(configDir string) (*Config, error) {
 		}
 	}
 
-	applyConfigDefaultsAndFallbacks(&cfg)
-
-	// Validation checks
-	if cfg.Zotero.UserID == "???" || cfg.Zotero.UserID == "" {
-		return nil, fmt.Errorf("zotero.user_id is required and not configured")
-	}
-	if cfg.Zotero.APIKey == "???" || cfg.Zotero.APIKey == "" {
-		return nil, fmt.Errorf("zotero.api_key is required and not configured")
+	if err := finalizeAndValidate(&cfg); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
@@ -229,14 +257,8 @@ func LoadConfigFromFile(path string) (*Config, error) {
 		return nil, err
 	}
 
-	applyConfigDefaultsAndFallbacks(&cfg)
-
-	// Validation checks
-	if cfg.Zotero.UserID == "???" || cfg.Zotero.UserID == "" {
-		return nil, fmt.Errorf("zotero.user_id is required and not configured")
-	}
-	if cfg.Zotero.APIKey == "???" || cfg.Zotero.APIKey == "" {
-		return nil, fmt.Errorf("zotero.api_key is required and not configured")
+	if err := finalizeAndValidate(&cfg); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
@@ -246,11 +268,57 @@ func applyConfigDefaultsAndFallbacks(cfg *Config) {
 	if cfg.Email.SMTPUser == "" {
 		if cfg.Email.SMTPUsername != "" {
 			cfg.Email.SMTPUser = cfg.Email.SMTPUsername
+		} else if u := os.Getenv("SMTP_USERNAME"); u != "" {
+			cfg.Email.SMTPUser = u
+		} else if u := os.Getenv("SMTP_USER"); u != "" {
+			cfg.Email.SMTPUser = u
 		} else {
 			cfg.Email.SMTPUser = cfg.Email.Sender
 		}
 	}
 
+	if cfg.Email.SMTPPort == 0 {
+		if portStr := os.Getenv("SMTP_PORT"); portStr != "" {
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				cfg.Email.SMTPPort = p
+			}
+		}
+		if cfg.Email.SMTPPort == 0 {
+			cfg.Email.SMTPPort = 465
+		}
+	}
+
+	if cfg.Email.SMTPServer == "" {
+		if s := os.Getenv("SMTP_SERVER"); s != "" {
+			cfg.Email.SMTPServer = s
+		}
+	}
+
+	if cfg.Email.Sender == "" {
+		if s := os.Getenv("SMTP_SENDER"); s != "" {
+			cfg.Email.Sender = s
+		} else if s := os.Getenv("SENDER"); s != "" {
+			cfg.Email.Sender = s
+		}
+	}
+
+	if cfg.Email.Receiver == "" {
+		if r := os.Getenv("SMTP_RECEIVER"); r != "" {
+			cfg.Email.Receiver = r
+		} else if r := os.Getenv("RECEIVER"); r != "" {
+			cfg.Email.Receiver = r
+		}
+	}
+
+	if cfg.Email.SenderPassword == "" {
+		if p := os.Getenv("SMTP_PASSWORD"); p != "" {
+			cfg.Email.SenderPassword = p
+		} else if p := os.Getenv("SENDER_PASSWORD"); p != "" {
+			cfg.Email.SenderPassword = p
+		}
+	}
+
+	// LLM API Key fallbacks
 	if cfg.LLM.API.Key == "" {
 		if k := os.Getenv("LLM_API_KEY"); k != "" {
 			cfg.LLM.API.Key = k
@@ -261,6 +329,23 @@ func applyConfigDefaultsAndFallbacks(cfg *Config) {
 		}
 	}
 
+	// LLM Base URL fallbacks
+	if cfg.LLM.API.BaseURL == "" {
+		if u := os.Getenv("LLM_BASE_URL"); u != "" {
+			cfg.LLM.API.BaseURL = u
+		} else if u := os.Getenv("OPENAI_API_BASE"); u != "" {
+			cfg.LLM.API.BaseURL = u
+		}
+	}
+
+	// LLM Model fallback
+	if cfg.LLM.GenerationKwargs.Model == "" {
+		if m := os.Getenv("LLM_MODEL"); m != "" {
+			cfg.LLM.GenerationKwargs.Model = m
+		}
+	}
+
+	// Reranker API Key fallbacks
 	if cfg.Reranker.API.Key == "" {
 		if k := os.Getenv("EMBEDDING_API_KEY"); k != "" {
 			cfg.Reranker.API.Key = k
@@ -268,6 +353,24 @@ func applyConfigDefaultsAndFallbacks(cfg *Config) {
 			cfg.Reranker.API.Key = cfg.LLM.API.Key
 		} else if k := os.Getenv("GEMINI_API_KEY"); k != "" {
 			cfg.Reranker.API.Key = k
+		}
+	}
+
+	// Reranker Base URL fallbacks
+	if cfg.Reranker.API.BaseURL == "" {
+		if u := os.Getenv("EMBEDDING_BASE_URL"); u != "" {
+			cfg.Reranker.API.BaseURL = u
+		} else if cfg.LLM.API.BaseURL != "" {
+			cfg.Reranker.API.BaseURL = cfg.LLM.API.BaseURL
+		} else if u := os.Getenv("OPENAI_API_BASE"); u != "" {
+			cfg.Reranker.API.BaseURL = u
+		}
+	}
+
+	// Reranker Model fallback
+	if cfg.Reranker.API.Model == "" {
+		if m := os.Getenv("EMBEDDING_MODEL"); m != "" {
+			cfg.Reranker.API.Model = m
 		}
 	}
 }

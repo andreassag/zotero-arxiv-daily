@@ -17,9 +17,15 @@
 package email
 
 import (
+	"bufio"
+	"io"
+	"mime/quotedprintable"
+	"net"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/exTerEX/zotero-arxiv-daily/go/internal/config"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/model"
 )
 
@@ -80,5 +86,236 @@ func TestRenderEmail(t *testing.T) {
 	// 6. Check collapsible abstract details
 	if !strings.Contains(html, "<details") || !strings.Contains(html, "<summary") {
 		t.Errorf("Expected <details><summary> for abstract, got html:\n%s", html)
+	}
+}
+
+func TestRenderEmptyEmail(t *testing.T) {
+	html := RenderEmail(nil)
+	if !strings.Contains(html, "No Papers Found Today") {
+		t.Errorf("Expected 'No Papers Found Today' in empty email, got: %s", html)
+	}
+	if !strings.Contains(html, "☕") {
+		t.Errorf("Expected coffee emoji in empty email, got: %s", html)
+	}
+}
+
+func TestBuildMIMEMessageLineLengthAndQuotedPrintable(t *testing.T) {
+	// Create a huge continuous line (> 5000 chars) simulating scientific abstracts without newlines
+	hugeAbstract := strings.Repeat("ArbitraryLongBiologicalSequenceAndScientificAbstractContentWithoutAnyNewlines ", 70)
+	body := "<html><body><h1>Test</h1><p>" + hugeAbstract + "</p><p>Emoji: 🏛️ ⭐ ☕</p></body></html>"
+
+	sender := "sender@example.com"
+	receiver := "receiver@example.com"
+	subject := "Daily arXiv digest with unicode: 🚀"
+
+	msg, err := buildMIMEMessage(sender, receiver, subject, body)
+	if err != nil {
+		t.Fatalf("buildMIMEMessage failed: %v", err)
+	}
+
+	// 1. Verify headers
+	msgStr := string(msg)
+	if !strings.Contains(msgStr, "Content-Transfer-Encoding: quoted-printable") {
+		t.Errorf("Expected Content-Transfer-Encoding: quoted-printable in headers")
+	}
+	if !strings.Contains(msgStr, "MIME-Version: 1.0") {
+		t.Errorf("Expected MIME-Version: 1.0 in headers")
+	}
+
+	// 2. Verify RFC 5321/5322 line length limit: every line must be <= 78 bytes (excluding \r\n, <= 76)
+	lines := strings.Split(msgStr, "\r\n")
+	for idx, line := range lines {
+		// If line is empty or trailing split, skip
+		if idx == len(lines)-1 && line == "" {
+			continue
+		}
+		if len(line) > 78 {
+			t.Errorf("Line %d exceeds 78 characters (len=%d): %q", idx, len(line), line)
+		}
+	}
+
+	// 3. Verify Quoted-Printable roundtrip decoding matches original HTML body
+	headerEnd := strings.Index(msgStr, "\r\n\r\n")
+	if headerEnd == -1 {
+		t.Fatalf("MIME message missing header-body boundary")
+	}
+	encodedBody := msgStr[headerEnd+4:]
+	qpReader := quotedprintable.NewReader(strings.NewReader(encodedBody))
+	decodedBytes, err := io.ReadAll(qpReader)
+	if err != nil {
+		t.Fatalf("Failed to decode quoted-printable body: %v", err)
+	}
+
+	if string(decodedBytes) != body {
+		t.Errorf("Quoted-printable decoded body does not match original body.\nGot: %q\nWant: %q", string(decodedBytes), body)
+	}
+}
+
+func TestBuildMIMEMessageHeaderSanitization(t *testing.T) {
+	// Attempt CRLF injection in sender, receiver, and subject
+	sender := "sender@example.com\r\nBcc: evil-sender@example.com"
+	receiver := "receiver@example.com\r\nCc: evil-receiver@example.com"
+	subject := "Test Subject\r\nInjected-Header: evil"
+	body := "<p>Test</p>"
+
+	msg, err := buildMIMEMessage(sender, receiver, subject, body)
+	if err != nil {
+		t.Fatalf("buildMIMEMessage failed: %v", err)
+	}
+
+	msgStr := string(msg)
+	headerEnd := strings.Index(msgStr, "\r\n\r\n")
+	if headerEnd == -1 {
+		t.Fatalf("Missing header-body separator")
+	}
+	headers := msgStr[:headerEnd]
+
+	// Check that injected headers are not present on their own lines
+	if strings.Contains(headers, "\r\nBcc:") || strings.Contains(headers, "\r\nCc:") || strings.Contains(headers, "\r\nInjected-Header:") {
+		t.Errorf("CRLF header injection was not prevented: %s", headers)
+	}
+}
+
+func TestAddressFormatting(t *testing.T) {
+	// Plain email
+	if got := formatAddressHeader("GitHub Action", "bot@example.com"); got != "GitHub Action <bot@example.com>" {
+		t.Errorf("Expected 'GitHub Action <bot@example.com>', got: %s", got)
+	}
+
+	// Already formatted name and email
+	if got := formatAddressHeader("GitHub Action", "Custom Bot <custom@example.com>"); got != "Custom Bot <custom@example.com>" {
+		t.Errorf("Expected 'Custom Bot <custom@example.com>', got: %s", got)
+	}
+
+	// Extraction for SMTP MAIL FROM / RCPT TO
+	if got := extractEmailAddress("Custom Bot <custom@example.com>"); got != "custom@example.com" {
+		t.Errorf("Expected 'custom@example.com', got: %s", got)
+	}
+}
+
+func TestMultipleRecipients(t *testing.T) {
+	// Comma separated
+	addrs := extractEmailAddresses("alice@example.com, bob@example.com")
+	want := []string{"alice@example.com", "bob@example.com"}
+	if !reflect.DeepEqual(addrs, want) {
+		t.Errorf("extractEmailAddresses = %v, want %v", addrs, want)
+	}
+
+	// Semicolon separated
+	addrsSemi := extractEmailAddresses("alice@example.com; bob@example.com")
+	if !reflect.DeepEqual(addrsSemi, want) {
+		t.Errorf("extractEmailAddresses with semicolon = %v, want %v", addrsSemi, want)
+	}
+
+	// With names
+	addrsWithNames := extractEmailAddresses("Alice <alice@example.com>, Bob <bob@example.com>")
+	if !reflect.DeepEqual(addrsWithNames, want) {
+		t.Errorf("extractEmailAddresses with names = %v, want %v", addrsWithNames, want)
+	}
+
+	// Header formatting
+	header := formatAddressListHeader("You", "alice@example.com, Bob <bob@example.com>")
+	if !strings.Contains(header, "You <alice@example.com>") || !strings.Contains(header, "Bob <bob@example.com>") {
+		t.Errorf("unexpected header format: %s", header)
+	}
+}
+
+func TestSendEmailMockSMTP(t *testing.T) {
+	// Start local mock SMTP server (port 25-like plain connection)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	var receivedRcpts []string
+	var receivedData string
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		reader := bufio.NewReader(conn)
+		writer := bufio.NewWriter(conn)
+
+		sendLine := func(line string) {
+			_, _ = writer.WriteString(line + "\r\n")
+			_ = writer.Flush()
+		}
+
+		sendLine("220 mock.smtp ready")
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				break
+			}
+			line = strings.TrimRight(line, "\r\n")
+			upper := strings.ToUpper(line)
+
+			if strings.HasPrefix(upper, "EHLO") || strings.HasPrefix(upper, "HELO") {
+				sendLine("250-mock.smtp")
+				sendLine("250 8BITMIME")
+			} else if strings.HasPrefix(upper, "MAIL FROM:") {
+				sendLine("250 OK")
+			} else if strings.HasPrefix(upper, "RCPT TO:") {
+				receivedRcpts = append(receivedRcpts, line)
+				sendLine("250 OK")
+			} else if upper == "DATA" {
+				sendLine("354 Start mail input; end with <CRLF>.<CRLF>")
+				var dataBuf strings.Builder
+				for {
+					dLine, dErr := reader.ReadString('\n')
+					if dErr != nil {
+						break
+					}
+					if dLine == ".\r\n" || dLine == ".\n" {
+						break
+					}
+					dataBuf.WriteString(dLine)
+				}
+				receivedData = dataBuf.String()
+				sendLine("250 OK: queued as 12345")
+			} else if upper == "QUIT" {
+				sendLine("221 Bye")
+				break
+			} else {
+				sendLine("500 Unknown command")
+			}
+		}
+	}()
+
+	cfg := config.EmailConfig{
+		Sender:     "sender@example.com",
+		Receiver:   "user1@example.com, user2@example.com",
+		SMTPServer: "127.0.0.1",
+		SMTPPort:   port,
+	}
+
+	err = SendEmail(cfg, "<h1>Hello World</h1><p>This is a test email digest.</p>")
+	if err != nil {
+		t.Fatalf("SendEmail failed: %v", err)
+	}
+
+	<-done
+
+	// Verify both recipients received RCPT TO
+	if len(receivedRcpts) != 2 {
+		t.Errorf("expected 2 RCPT TO commands, got %d: %v", len(receivedRcpts), receivedRcpts)
+	}
+
+	// Verify received data is Quoted-Printable encoded and contains expected content
+	if !strings.Contains(receivedData, "Content-Transfer-Encoding: quoted-printable") {
+		t.Errorf("expected quoted-printable header in received data")
+	}
+	if !strings.Contains(receivedData, "Hello World") {
+		t.Errorf("expected email body content in received data")
 	}
 }

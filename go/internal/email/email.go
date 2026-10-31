@@ -17,9 +17,14 @@
 package email
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"html"
+	"mime"
+	"mime/quotedprintable"
+	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	"time"
@@ -145,9 +150,11 @@ func RenderEmail(papers []model.Paper) string {
 
 	content := strings.Join(cardBlocks, "\n")
 	today := time.Now().Format("Monday, Jan 2, 2006")
+	return wrapEmailLayout(today, content)
+}
 
-	emailTemplate := fmt.Sprintf(`
-<!DOCTYPE html>
+func wrapEmailLayout(today, bodyContent string) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
 	<meta charset="utf-8">
@@ -174,44 +181,17 @@ func RenderEmail(papers []model.Paper) string {
 		</div>
 	</div>
 </body>
-</html>`, today, content)
-
-	return emailTemplate
+</html>`, today, bodyContent)
 }
 
 func renderEmptyEmail() string {
 	today := time.Now().Format("Monday, Jan 2, 2006")
-	return fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Daily arXiv Digest</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-	<div style="max-width: 680px; margin: 0 auto; padding: 20px;">
-		<!-- Header -->
-		<div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; padding: 32px 24px; margin-bottom: 24px; text-align: center; color: #ffffff; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-			<h1 style="font-size: 28px; font-weight: 800; margin: 0 0 8px 0; letter-spacing: -0.5px;">Daily arXiv Digest</h1>
-			<p style="font-size: 16px; color: #94a3b8; margin: 0; font-weight: 500;">%s</p>
-		</div>
-
-		<!-- Content -->
-		<div style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); padding: 40px 24px; border: 1px solid #eaeaea; text-align: center;">
+	emptyBody := `<div style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); padding: 40px 24px; border: 1px solid #eaeaea; text-align: center;">
 			<div style="font-size: 48px; margin-bottom: 16px;">☕</div>
 			<h2 style="font-size: 22px; font-weight: 700; color: #1a1a1a; margin: 0 0 12px 0;">No Papers Found Today</h2>
 			<p style="font-size: 15px; color: #666666; margin: 0; line-height: 1.6;">Take a break! There are no matching papers matching your interests in today's updates.</p>
-		</div>
-
-		<!-- Footer -->
-		<div style="text-align: center; padding: 32px 0 16px 0; font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #e2e8f0; margin-top: 32px;">
-			<p style="margin: 0 0 8px 0;">This email was automatically generated and sent to you.</p>
-			<p style="margin: 0;">To unsubscribe, remove your email from your GitHub repository config settings.</p>
-		</div>
-	</div>
-</body>
-</html>`, today)
+		</div>`
+	return wrapEmailLayout(today, emptyBody)
 }
 
 func getStarsHTML(score float64) string {
@@ -245,32 +225,141 @@ func getStarsHTML(score float64) string {
 	return stars.String()
 }
 
-// SendEmail sends the HTML email using SMTP with TLS -> SSL -> plain text fallbacks.
-func SendEmail(cfg config.EmailConfig, html string) error {
+func sanitizeHeaderValue(v string) string {
+	v = strings.ReplaceAll(v, "\r", "")
+	v = strings.ReplaceAll(v, "\n", "")
+	return strings.TrimSpace(v)
+}
+
+func formatAddressHeader(defaultName, raw string) string {
+	clean := sanitizeHeaderValue(raw)
+	if addr, err := mail.ParseAddress(clean); err == nil {
+		name := addr.Name
+		if name == "" {
+			name = defaultName
+		}
+		return fmt.Sprintf("%s <%s>", name, addr.Address)
+	}
+	return fmt.Sprintf("%s <%s>", defaultName, clean)
+}
+
+func formatAddressListHeader(defaultName, raw string) string {
+	clean := sanitizeHeaderValue(raw)
+	clean = strings.ReplaceAll(clean, ";", ",")
+	if addrs, err := mail.ParseAddressList(clean); err == nil && len(addrs) > 0 {
+		var formatted []string
+		for _, addr := range addrs {
+			name := addr.Name
+			if name == "" {
+				name = defaultName
+			}
+			formatted = append(formatted, fmt.Sprintf("%s <%s>", name, addr.Address))
+		}
+		return strings.Join(formatted, ", ")
+	}
+	return formatAddressHeader(defaultName, clean)
+}
+
+func extractEmailAddress(raw string) string {
+	clean := sanitizeHeaderValue(raw)
+	if addr, err := mail.ParseAddress(clean); err == nil {
+		return addr.Address
+	}
+	return clean
+}
+
+func extractEmailAddresses(raw string) []string {
+	clean := sanitizeHeaderValue(raw)
+	clean = strings.ReplaceAll(clean, ";", ",")
+
+	if addrs, err := mail.ParseAddressList(clean); err == nil && len(addrs) > 0 {
+		var res []string
+		for _, addr := range addrs {
+			if addr.Address != "" {
+				res = append(res, addr.Address)
+			}
+		}
+		if len(res) > 0 {
+			return res
+		}
+	}
+
+	// Fallback to manual split by comma
+	parts := strings.Split(clean, ",")
+	var res []string
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			res = append(res, trimmed)
+		}
+	}
+	if len(res) > 0 {
+		return res
+	}
+	if clean != "" {
+		return []string{clean}
+	}
+	return nil
+}
+
+// buildMIMEMessage formats headers and encodes the HTML body with quoted-printable
+// to enforce RFC 5321/5322 line length limits (<= 76 characters) and canonical CRLF endings.
+func buildMIMEMessage(sender, receiver, subject, htmlBody string) ([]byte, error) {
+	fromHeader := formatAddressHeader("GitHub Action", sender)
+	toHeader := formatAddressListHeader("You", receiver)
+	cleanSubject := mime.QEncoding.Encode("utf-8", sanitizeHeaderValue(subject))
+
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
+	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&buf, "From: %s\r\n", fromHeader)
+	fmt.Fprintf(&buf, "To: %s\r\n", toHeader)
+	fmt.Fprintf(&buf, "Subject: %s\r\n", cleanSubject)
+	fmt.Fprintf(&buf, "Content-Type: text/html; charset=UTF-8\r\n")
+	fmt.Fprintf(&buf, "Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+
+	qpWriter := quotedprintable.NewWriter(&buf)
+	if _, err := qpWriter.Write([]byte(htmlBody)); err != nil {
+		return nil, fmt.Errorf("failed to encode email body as quoted-printable: %w", err)
+	}
+	if err := qpWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to flush quoted-printable writer: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// SendEmail sends the HTML email using SMTP with TLS -> SSL -> STARTTLS -> plain text fallbacks.
+// It wraps long lines with quoted-printable encoding to avoid SMTP 501 line length errors.
+func SendEmail(cfg config.EmailConfig, htmlBody string) error {
 	today := time.Now().Format("2006/01/02")
 	subject := fmt.Sprintf("Daily arXiv %s", today)
 
-	// Format From/To fields safely
-	mimeHeaders := fmt.Sprintf("MIME-Version: 1.0\r\n"+
-		"From: GitHub Action <%s>\r\n"+
-		"To: You <%s>\r\n"+
-		"Subject: %s\r\n"+
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n", cfg.Sender, cfg.Receiver, subject)
+	msg, err := buildMIMEMessage(cfg.Sender, cfg.Receiver, subject, htmlBody)
+	if err != nil {
+		return fmt.Errorf("failed to build MIME message: %w", err)
+	}
 
-	msg := []byte(mimeHeaders + html)
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPServer, cfg.SMTPPort)
 	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SenderPassword, cfg.SMTPServer)
 
+	dialer := &net.Dialer{
+		Timeout: 30 * time.Second,
+	}
+
+	tlsConfig := &tls.Config{
+		ServerName: cfg.SMTPServer,
+		MinVersion: tls.VersionTLS12,
+	}
+
 	// 1. SSL implicitly on port 465
 	if cfg.SMTPPort == 465 {
-		tlsConfig := &tls.Config{
-			ServerName: cfg.SMTPServer,
-		}
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 		if err != nil {
 			return fmt.Errorf("SSL dial failed on port 465: %w", err)
 		}
 		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 
 		client, err := smtp.NewClient(conn, cfg.SMTPServer)
 		if err != nil {
@@ -278,24 +367,30 @@ func SendEmail(cfg config.EmailConfig, html string) error {
 		}
 		defer client.Close()
 
-		if err = client.Auth(auth); err != nil {
-			return fmt.Errorf("SMTP SSL auth failed: %w", err)
+		if cfg.SMTPUser != "" || cfg.SenderPassword != "" {
+			if err = client.Auth(auth); err != nil {
+				return fmt.Errorf("SMTP SSL auth failed: %w", err)
+			}
 		}
 
 		return sendMailThroughClient(client, cfg.Sender, cfg.Receiver, msg)
 	}
 
 	// 2. Starttls/Plain fallback for ports like 587 or 25
-	client, err := smtp.Dial(addr)
+	rawConn, err := dialer.Dial("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("SMTP plain dial failed: %w", err)
+		return fmt.Errorf("SMTP dial failed: %w", err)
+	}
+	defer rawConn.Close()
+	_ = rawConn.SetDeadline(time.Now().Add(60 * time.Second))
+
+	client, err := smtp.NewClient(rawConn, cfg.SMTPServer)
+	if err != nil {
+		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
 	defer client.Close()
 
 	if ok, _ := client.Extension("STARTTLS"); ok {
-		tlsConfig := &tls.Config{
-			ServerName: cfg.SMTPServer,
-		}
 		if err = client.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("STARTTLS failed: %w", err)
 		}
@@ -303,19 +398,33 @@ func SendEmail(cfg config.EmailConfig, html string) error {
 		return fmt.Errorf("SMTP server %s does not support STARTTLS; refusing to transmit credentials in cleartext", cfg.SMTPServer)
 	}
 
-	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("SMTP authentication failed: %w", err)
+	if cfg.SMTPUser != "" || cfg.SenderPassword != "" {
+		if err = client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP authentication failed: %w", err)
+		}
 	}
 
 	return sendMailThroughClient(client, cfg.Sender, cfg.Receiver, msg)
 }
 
 func sendMailThroughClient(client *smtp.Client, sender, receiver string, msg []byte) error {
-	if err := client.Mail(sender); err != nil {
+	from := extractEmailAddress(sender)
+	toAddresses := extractEmailAddresses(receiver)
+
+	if from == "" {
+		return fmt.Errorf("sender email address is empty")
+	}
+	if len(toAddresses) == 0 {
+		return fmt.Errorf("no valid recipient addresses found in receiver: %q", receiver)
+	}
+
+	if err := client.Mail(from); err != nil {
 		return fmt.Errorf("failed to set SMTP MAIL FROM: %w", err)
 	}
-	if err := client.Rcpt(receiver); err != nil {
-		return fmt.Errorf("failed to set SMTP RCPT TO: %w", err)
+	for _, to := range toAddresses {
+		if err := client.Rcpt(to); err != nil {
+			return fmt.Errorf("failed to set SMTP RCPT TO (%s): %w", to, err)
+		}
 	}
 
 	w, err := client.Data()
