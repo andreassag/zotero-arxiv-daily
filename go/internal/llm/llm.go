@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/ratelimit"
@@ -62,6 +61,25 @@ func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	return c
 }
 
+// truncateUTF8 safely truncates a string to maxRunes without splitting multi-byte UTF-8 runes.
+func truncateUTF8(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes])
+	}
+	return s
+}
+
+// extractJSONArray locates the outer bracket-delimited JSON array in content.
+func extractJSONArray(content string) (string, error) {
+	start := strings.IndexByte(content, '[')
+	end := strings.LastIndexByte(content, ']')
+	if start == -1 || end == -1 || end <= start {
+		return "", fmt.Errorf("failed to locate JSON list in LLM response: %s", content)
+	}
+	return content[start : end+1], nil
+}
+
 // GenerateTLDR uses ChatCompletions to generate a 2-3 sentence summary.
 func (c *Client) GenerateTLDR(ctx context.Context, title, abstract, language, model string, maxTokens int) (string, error) {
 	prompt := fmt.Sprintf("Summarize the paper in 2-3 concise sentences in %s, focusing on what it does and its main results or conclusion.\n\n", language)
@@ -72,11 +90,7 @@ func (c *Client) GenerateTLDR(ctx context.Context, title, abstract, language, mo
 		prompt += fmt.Sprintf("Abstract: %s\n\n", abstract)
 	}
 	prompt = strings.TrimSpace(prompt)
-
-	// Simple character limit truncation to keep prompt sizes safe
-	if len(prompt) > 8000 {
-		prompt = prompt[:8000]
-	}
+	prompt = truncateUTF8(prompt, 8000)
 
 	systemContent := fmt.Sprintf("You are an assistant that summarizes scientific papers clearly and concisely. Write 2-3 sentences describing the paper's purpose and main result or conclusion in %s.", language)
 
@@ -110,8 +124,6 @@ func (c *Client) GenerateTLDR(ctx context.Context, title, abstract, language, mo
 	return resp.Choices[0].Message.Content, nil
 }
 
-var jsonArrayRegex = regexp.MustCompile(`\[.*?\]`)
-
 // ExtractAffiliations extracts the affiliations of authors from fullText or title/authors/abstract.
 func (c *Client) ExtractAffiliations(ctx context.Context, title string, authors []string, abstract, fullText, model string) ([]string, error) {
 	content := fullText
@@ -133,9 +145,7 @@ func (c *Client) ExtractAffiliations(ctx context.Context, title string, authors 
 	}
 
 	prompt := fmt.Sprintf("Given the following scientific paper details, extract the affiliations or institutions of the authors in a JSON list format [\"Institution 1\", \"Institution 2\"]. If an affiliation has multi-level departments, extract the top-level institution or university name only. If no affiliation can be determined, return an empty list []. Return only the JSON list:\n\n%s", content)
-	if len(prompt) > 8000 {
-		prompt = prompt[:8000]
-	}
+	prompt = truncateUTF8(prompt, 8000)
 
 	systemContent := "You are an assistant who extracts affiliations of authors from a scientific paper. Return a JSON list of unique institutions, like [\"Stanford University\", \"Tsinghua University\"]. If no affiliation is found, return []. Only return the JSON list, with no surrounding explanations."
 
@@ -163,10 +173,10 @@ func (c *Client) ExtractAffiliations(ctx context.Context, title string, authors 
 		return nil, fmt.Errorf("no response choices returned from LLM")
 	}
 
-	content = resp.Choices[0].Message.Content
-	match := jsonArrayRegex.FindString(strings.ReplaceAll(content, "\n", " "))
-	if match == "" {
-		return nil, fmt.Errorf("failed to locate JSON list in LLM response: %s", content)
+	rawContent := resp.Choices[0].Message.Content
+	match, err := extractJSONArray(rawContent)
+	if err != nil {
+		return nil, err
 	}
 
 	var affiliations []string

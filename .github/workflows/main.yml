@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 07 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   calculate-and-send:
     runs-on: ubuntu-24.04
@@ -42,8 +45,6 @@ jobs:
         run: |
           cp config/config.yaml config/base.yaml
           if [ -n "$CUSTOM_CONFIG" ]; then
-            printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
-            echo "Use custom config: "
-            cat config/custom.yaml
+            printf "%s\n" "$CUSTOM_CONFIG" > config/custom.yaml
           fi
           go run go/cmd/zotero-arxiv-daily/main.go -config config

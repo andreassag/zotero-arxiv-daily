@@ -22,7 +22,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -73,24 +75,20 @@ func TestArxivFetchPapers(t *testing.T) {
 		w.Header().Set("Content-Type", "application/atom+xml")
 		w.WriteHeader(http.StatusOK)
 
-		// Parse id_list query parameter and return only requested papers
 		query := r.URL.Query()
 		idList := query.Get("id_list")
 
-		// If no specific IDs requested, return all (for backward compatibility)
 		if idList == "" {
 			_, _ = w.Write([]byte(mockAPI))
 			return
 		}
 
-		// Build response based on requested IDs
 		requestedIDs := strings.Split(idList, ",")
 		requestedSet := make(map[string]bool)
 		for _, id := range requestedIDs {
 			requestedSet[strings.TrimSpace(id)] = true
 		}
 
-		// Parse mockAPI and filter
 		var apiFeed xmlAPIFeed
 		if err := xml.Unmarshal([]byte(mockAPI), &apiFeed); err != nil {
 			http.Error(w, "failed to parse mock API", http.StatusInternalServerError)
@@ -99,7 +97,6 @@ func TestArxivFetchPapers(t *testing.T) {
 
 		var filteredEntries []xmlAPIEntry
 		for _, entry := range apiFeed.Entries {
-			// Extract ID from entry.ID (format: http://arxiv.org/abs/2508.13426v1)
 			parts := strings.Split(entry.ID, "/abs/")
 			var entryID string
 			if len(parts) == 2 {
@@ -107,7 +104,6 @@ func TestArxivFetchPapers(t *testing.T) {
 			} else {
 				entryID = entry.ID
 			}
-			// Also handle oai:arXiv.org: prefix if present
 			entryID = strings.TrimPrefix(entryID, "oai:arXiv.org:")
 
 			if requestedSet[entryID] {
@@ -115,7 +111,6 @@ func TestArxivFetchPapers(t *testing.T) {
 			}
 		}
 
-		// Reconstruct XML with only filtered entries
 		result := xmlAPIFeed{Entries: filteredEntries}
 		xmlBytes, err := xml.Marshal(result)
 		if err != nil {
@@ -162,5 +157,85 @@ func TestArxivFetchPapers(t *testing.T) {
 	}
 	if len(papersWithCross) != 2 {
 		t.Errorf("expected 2 papers with cross list, got %d", len(papersWithCross))
+	}
+}
+
+func TestFetchAPIDetailsRetrySuccess(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := attempts.Add(1)
+		if count == 1 {
+			// First attempt returns 429 Too Many Requests
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		// Second attempt succeeds
+		w.Header().Set("Content-Type", "application/atom+xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(mockAPI))
+	}))
+	defer server.Close()
+
+	client := NewClient(
+		WithBaseURL(server.URL),
+		WithBackoff(10*time.Millisecond),
+	)
+
+	papers, err := client.fetchAPIDetails(context.Background(), []string{"2508.13426v1"})
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got error: %v", err)
+	}
+	if len(papers) == 0 {
+		t.Fatalf("expected papers after retry")
+	}
+	if attempts.Load() != 2 {
+		t.Errorf("expected exactly 2 attempts, got %d", attempts.Load())
+	}
+}
+
+func TestFetchAPIDetailsNonRetryableError(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusNotFound) // 404 is non-retryable
+	}))
+	defer server.Close()
+
+	client := NewClient(
+		WithBaseURL(server.URL),
+		WithBackoff(10*time.Millisecond),
+	)
+
+	_, err := client.fetchAPIDetails(context.Background(), []string{"2508.13426v1"})
+	if err == nil {
+		t.Fatalf("expected error on 404, got nil")
+	}
+	if attempts.Load() != 1 {
+		t.Errorf("expected 404 to not be retried, attempts = %d", attempts.Load())
+	}
+}
+
+func TestFetchAPIDetailsRetryExhaustion(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests) // always 429
+	}))
+	defer server.Close()
+
+	client := NewClient(
+		WithBaseURL(server.URL),
+		WithBackoff(5*time.Millisecond),
+	)
+
+	_, err := client.fetchAPIDetails(context.Background(), []string{"2508.13426v1"})
+	if err == nil {
+		t.Fatalf("expected error after retries exhausted, got nil")
+	}
+	if !strings.Contains(err.Error(), "API request failed after 5 attempts") {
+		t.Errorf("expected clear retry exhaustion error, got: %v", err)
+	}
+	if attempts.Load() != 5 {
+		t.Errorf("expected 5 attempts before giving up, got %d", attempts.Load())
 	}
 }

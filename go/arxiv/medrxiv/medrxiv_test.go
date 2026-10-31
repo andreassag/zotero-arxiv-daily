@@ -67,6 +67,11 @@ func TestMedrxivFetchPapers(t *testing.T) {
 		t.Errorf("expected 'Medrxiv Title 1', got '%s'", p.Title)
 	}
 
+	wantURL := "https://www.medrxiv.org/content/10.1101/2026.03.01.000003v1"
+	if p.URL != wantURL {
+		t.Errorf("expected medrxiv page URL %q, got %q", wantURL, p.URL)
+	}
+
 	wantPDF := "https://www.medrxiv.org/content/10.1101/2026.03.01.000003v1.full.pdf"
 	if p.PDFURL != wantPDF {
 		t.Errorf("expected medrxiv PDF URL %q, got %q", wantPDF, p.PDFURL)

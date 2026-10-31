@@ -100,3 +100,38 @@ func TestZoteroFetchCorpus(t *testing.T) {
 		t.Errorf("expected collection path 'survey/topic-a', got %v", paper.Paths)
 	}
 }
+
+func TestZoteroCyclicCollections(t *testing.T) {
+	// Cyclic collections: COL_A -> COL_B -> COL_A
+	cyclicCollections := `[
+	  {"key": "COL_A", "data": {"name": "A", "parentCollection": "COL_B"}},
+	  {"key": "COL_B", "data": {"name": "B", "parentCollection": "COL_A"}}
+	]`
+	items := `[
+	  {"key": "ITEM_CYCLE", "data": {"title": "Cycle Paper", "abstractNote": "Abstract", "collections": ["COL_A"]}}
+	]`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		switch r.URL.Path {
+		case "/users/12345/collections", "/users/12345/collections/":
+			_, _ = w.Write([]byte(cyclicCollections))
+		case "/users/12345/items":
+			_, _ = w.Write([]byte(items))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("12345", "fake-key", WithBaseURL(server.URL))
+
+	corpus, err := client.FetchCorpus(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error with cyclic collections, got %v", err)
+	}
+	if len(corpus) != 1 {
+		t.Fatalf("expected 1 paper, got %d", len(corpus))
+	}
+}

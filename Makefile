@@ -75,4 +75,4 @@ setup-hooks: ## Configure git hooks path to .githooks
 	@echo "Git hooks configured to .githooks"
 
 clean: ## Clean built binaries, test artifacts, and coverage reports
-	rm -rf bin/ coverage/ ./artifacts/ dist/ email_output.html
+	rm -rf bin/ coverage/ ./artifacts/ dist/ email_output.html outputs/

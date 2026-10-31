@@ -2,6 +2,9 @@ name: Test
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   calculate-and-send:
     runs-on: ubuntu-24.04
@@ -33,16 +36,25 @@ jobs:
           EMBEDDING_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL || secrets.LLM_BASE_URL || secrets.OPENAI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
           EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL || 'gemini-embedding-2' }}
           CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
+          SAVE_EMAIL_PATH: "email_output.html"
           DEBUG: "true"
         run: |
           export DEBUG=true
           cp config/config.yaml config/base.yaml
           if [ -n "$CUSTOM_CONFIG" ]; then
-            printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
-            echo "Use custom config: "
-            cat config/custom.yaml
+            printf "%s\n" "$CUSTOM_CONFIG" > config/custom.yaml
           fi
           go run go/cmd/zotero-arxiv-daily/main.go -config config
+
+      - name: Upload email output as artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: email-output
+          path: email_output.html
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload embedding input data as artifacts
         if: always()
@@ -52,3 +64,4 @@ jobs:
           name: embedding-input-data
           path: outputs/embedding_input_*.json
           retention-days: 7
+          if-no-files-found: ignore

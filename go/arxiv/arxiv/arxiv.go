@@ -25,7 +25,11 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/exTerEX/zotero-arxiv-daily/go/arxiv/shared"
 )
+
+const maxResponseBytes = 10 << 20 // 10 MB limit for HTTP responses
 
 // Paper represents a retrieved arXiv paper.
 type Paper struct {
@@ -34,7 +38,6 @@ type Paper struct {
 	Abstract string
 	URL      string
 	PDFURL   string
-	EntryID  string
 }
 
 // Client is a client for fetching papers from arXiv.
@@ -43,6 +46,7 @@ type Client struct {
 	baseURL    string
 	rssURL     string
 	debug      bool
+	backoff    time.Duration
 }
 
 // Option is a functional option for configuring the Client.
@@ -76,6 +80,13 @@ func WithDebug(debug bool) Option {
 	}
 }
 
+// WithBackoff overrides the retry backoff duration (useful in tests).
+func WithBackoff(backoff time.Duration) Option {
+	return func(c *Client) {
+		c.backoff = backoff
+	}
+}
+
 // NewClient creates a new arXiv Client.
 func NewClient(opts ...Option) *Client {
 	c := &Client{
@@ -83,6 +94,7 @@ func NewClient(opts ...Option) *Client {
 		baseURL:    "https://export.arxiv.org/api/query",
 		rssURL:     "https://rss.arxiv.org/atom/",
 		debug:      false,
+		backoff:    30 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -157,7 +169,7 @@ func (c *Client) FetchPapers(ctx context.Context, categories []string, includeCr
 	}
 
 	var rssFeed xmlRSSFeed
-	if err := xml.NewDecoder(resp.Body).Decode(&rssFeed); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&rssFeed); err != nil {
 		return nil, fmt.Errorf("failed to decode RSS XML: %w", err)
 	}
 
@@ -218,15 +230,19 @@ func (c *Client) FetchPapers(ctx context.Context, categories []string, includeCr
 	return allPapers, nil
 }
 
-// fetchAPIDetails queries the arXiv API for a batch of paper IDs with exponential backoff on 429.
+// fetchAPIDetails queries the arXiv API for a batch of paper IDs with exponential backoff on retryable errors.
 func (c *Client) fetchAPIDetails(ctx context.Context, ids []string) ([]Paper, error) {
 	idList := strings.Join(ids, ",")
 	apiURL := fmt.Sprintf("%s?id_list=%s", c.baseURL, url.QueryEscape(idList))
 
 	var resp *http.Response
+	var lastErr error
 
 	maxRetries := 5
-	backoff := 30 * time.Second
+	backoff := c.backoff
+	if backoff <= 0 {
+		backoff = 30 * time.Second
+	}
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
@@ -235,34 +251,41 @@ func (c *Client) fetchAPIDetails(ctx context.Context, ids []string) ([]Paper, er
 		}
 
 		resp, err = c.httpClient.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			break
-		}
-
 		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				lastErr = nil
+				break
+			}
 			resp.Body.Close()
+			lastErr = fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+			// Only retry on rate limit (429) or server errors (5xx)
+			if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500 {
+				return nil, lastErr
+			}
+		} else {
+			lastErr = fmt.Errorf("API request failed: %w", err)
 		}
 
-		// Handle 429 status code
-		if (err == nil && resp.StatusCode == http.StatusTooManyRequests) || attempt < maxRetries-1 {
+		if attempt < maxRetries-1 {
 			wait := backoff * time.Duration(attempt+1)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-time.After(wait):
 			}
-			continue
 		}
+	}
 
-		if err != nil {
-			return nil, fmt.Errorf("API request failed: %w", err)
+	if lastErr != nil || resp == nil || resp.StatusCode != http.StatusOK {
+		if lastErr != nil {
+			return nil, fmt.Errorf("API request failed after %d attempts: %w", maxRetries, lastErr)
 		}
-		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("API request failed after %d attempts", maxRetries)
 	}
 	defer resp.Body.Close()
 
 	var apiFeed xmlAPIFeed
-	if err := xml.NewDecoder(resp.Body).Decode(&apiFeed); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&apiFeed); err != nil {
 		return nil, fmt.Errorf("failed to decode API XML: %w", err)
 	}
 
@@ -289,8 +312,8 @@ func (c *Client) fetchAPIDetails(ctx context.Context, ids []string) ([]Paper, er
 		}
 
 		// Format Title & Abstract by cleaning up extra whitespace
-		title := cleanText(entry.Title)
-		abstract := cleanText(entry.Summary)
+		title := shared.CleanText(entry.Title)
+		abstract := shared.CleanText(entry.Summary)
 
 		papers = append(papers, Paper{
 			Title:    title,
@@ -298,38 +321,8 @@ func (c *Client) fetchAPIDetails(ctx context.Context, ids []string) ([]Paper, er
 			Abstract: abstract,
 			URL:      entry.ID,
 			PDFURL:   pdfURL,
-			EntryID:  entry.ID,
 		})
 	}
 
 	return papers, nil
-}
-
-// cleanText normalizes spaces and removes newlines from Title or Abstract
-func cleanText(text string) string {
-	lines := strings.Split(text, "\n")
-	var cleaned []string
-	for _, line := range lines {
-		cleaned = append(cleaned, strings.TrimSpace(line))
-	}
-	return strings.Join(cleaned, " ")
-}
-
-// GetRawRSSBody fetches the raw XML from arXiv RSS for testing/debugging.
-func (c *Client) GetRawRSSBody(ctx context.Context, category string) (string, error) {
-	rssEndpoint := fmt.Sprintf("%s%s", c.rssURL, category)
-	req, err := http.NewRequestWithContext(ctx, "GET", rssEndpoint, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(bodyBytes), nil
 }

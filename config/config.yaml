@@ -24,9 +24,9 @@ email:
 llm:
   api:
     key: ${oc.env:LLM_API_KEY}
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    base_url: ${oc.env:LLM_BASE_URL,https://generativelanguage.googleapis.com/v1beta/openai/}
   generation_kwargs:
-    model: gemini-3.8-flash
+    model: ${oc.env:LLM_MODEL,gemini-3.8-flash}
     max_tokens: 65536
   language: English
   rate_limit:
@@ -37,8 +37,8 @@ llm:
 reranker:
   api:
     key: ${oc.env:EMBEDDING_API_KEY}
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    model: gemini-embedding-2
+    base_url: ${oc.env:EMBEDDING_BASE_URL,https://generativelanguage.googleapis.com/v1beta/openai/}
+    model: ${oc.env:EMBEDDING_MODEL,gemini-embedding-2}
     batch_size: 32
   rate_limit:
     rpm: 100

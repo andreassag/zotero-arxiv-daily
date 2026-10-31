@@ -18,9 +18,13 @@ package reranker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
+	"os"
 	"sort"
+	"strings"
 
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/llm"
 	"github.com/exTerEX/zotero-arxiv-daily/go/internal/model"
@@ -69,7 +73,12 @@ func (r *Reranker) Rerank(ctx context.Context, candidates []model.Paper, corpus 
 		weights[i] /= weightSum
 	}
 
-	// 3. Fetch embeddings for candidates and corpus abstracts
+	// 3. Save debug input data if DEBUG mode is enabled
+	if isDebugEnabled() {
+		saveEmbeddingInputData(candidates, sortedCorpus)
+	}
+
+	// 4. Fetch embeddings for candidates and corpus abstracts
 	var texts []string
 	for _, c := range candidates {
 		texts = append(texts, c.Abstract)
@@ -83,10 +92,14 @@ func (r *Reranker) Rerank(ctx context.Context, candidates []model.Paper, corpus 
 		return nil, fmt.Errorf("failed to fetch embeddings: %w", err)
 	}
 
+	if len(embeddings) < len(texts) {
+		return nil, fmt.Errorf("embedding service returned %d embeddings, expected %d", len(embeddings), len(texts))
+	}
+
 	candidateEmbeds := embeddings[:len(candidates)]
 	corpusEmbeds := embeddings[len(candidates):]
 
-	// 4. Normalize embedding vectors
+	// 5. Normalize embedding vectors
 	normCandidateEmbeds := make([][]float64, len(candidateEmbeds))
 	for i, emb := range candidateEmbeds {
 		normCandidateEmbeds[i] = normalize(emb)
@@ -97,7 +110,7 @@ func (r *Reranker) Rerank(ctx context.Context, candidates []model.Paper, corpus 
 		normCorpusEmbeds[i] = normalize(emb)
 	}
 
-	// 5. Calculate scores with time decay
+	// 6. Calculate scores with time decay
 	scoredCandidates := make([]model.Paper, len(candidates))
 	copy(scoredCandidates, candidates)
 
@@ -110,12 +123,46 @@ func (r *Reranker) Rerank(ctx context.Context, candidates []model.Paper, corpus 
 		scoredCandidates[j].Score = totalSim * 10.0
 	}
 
-	// 6. Sort by score descending
+	// 7. Sort by score descending
 	sort.Slice(scoredCandidates, func(i, j int) bool {
 		return scoredCandidates[i].Score > scoredCandidates[j].Score
 	})
 
 	return scoredCandidates, nil
+}
+
+func isDebugEnabled() bool {
+	dbg := strings.ToLower(os.Getenv("DEBUG"))
+	return dbg == "true" || dbg == "1" || dbg == "yes"
+}
+
+func saveEmbeddingInputData(candidates []model.Paper, corpus []model.CorpusPaper) {
+	if err := os.MkdirAll("outputs", 0755); err != nil {
+		slog.Warn("Failed to create outputs directory for debug data", "error", err)
+		return
+	}
+
+	s1 := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		s1 = append(s1, c.Abstract)
+	}
+	s1Bytes, err := json.MarshalIndent(s1, "", "  ")
+	if err == nil {
+		if err := os.WriteFile("outputs/embedding_input_s1.json", s1Bytes, 0644); err == nil {
+			slog.Debug("Saved candidate abstracts to outputs/embedding_input_s1.json")
+		}
+	}
+
+	s2 := make([]string, 0, len(corpus))
+	for _, c := range corpus {
+		s2 = append(s2, c.Abstract)
+	}
+	s2Bytes, err := json.MarshalIndent(s2, "", "  ")
+	if err == nil {
+		if err := os.WriteFile("outputs/embedding_input_s2.json", s2Bytes, 0644); err == nil {
+			slog.Debug("Saved corpus abstracts to outputs/embedding_input_s2.json")
+		}
+	}
 }
 
 func dotProduct(v1, v2 []float64) float64 {

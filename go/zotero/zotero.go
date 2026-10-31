@@ -114,13 +114,18 @@ func (c *Client) FetchCorpus(ctx context.Context) ([]CorpusPaper, error) {
 		colMap[col.Key] = col
 	}
 
-	// Define recursive path resolution function
-	var getCollectionPath func(string) string
-	getCollectionPath = func(key string) string {
+	// Define recursive path resolution function with cycle detection
+	var getCollectionPath func(string, map[string]bool) string
+	getCollectionPath = func(key string, visited map[string]bool) string {
+		if visited[key] {
+			return ""
+		}
 		col, ok := colMap[key]
 		if !ok {
 			return ""
 		}
+		visited[key] = true
+
 		// parentCollection can be a string key, or boolean false
 		parentKey := ""
 		if parentStr, ok := col.Data.ParentCollection.(string); ok {
@@ -128,7 +133,7 @@ func (c *Client) FetchCorpus(ctx context.Context) ([]CorpusPaper, error) {
 		}
 
 		if parentKey != "" {
-			parentPath := getCollectionPath(parentKey)
+			parentPath := getCollectionPath(parentKey, visited)
 			if parentPath != "" {
 				return parentPath + "/" + col.Data.Name
 			}
@@ -152,7 +157,7 @@ func (c *Client) FetchCorpus(ctx context.Context) ([]CorpusPaper, error) {
 		// Calculate collection paths
 		var paths []string
 		for _, colKey := range item.Data.Collections {
-			path := getCollectionPath(colKey)
+			path := getCollectionPath(colKey, make(map[string]bool))
 			if path != "" {
 				paths = append(paths, path)
 			}
@@ -196,13 +201,13 @@ func (c *Client) fetchAllCollections(ctx context.Context) ([]collectionResponse,
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 			resp.Body.Close()
 			return nil, fmt.Errorf("HTTP status %d fetching collections: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
 		var page []collectionResponse
-		err = json.NewDecoder(resp.Body).Decode(&page)
+		err = json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&page)
 		resp.Body.Close()
 		if err != nil {
 			return nil, err
@@ -264,13 +269,13 @@ func (c *Client) fetchAllItems(ctx context.Context) ([]itemResponse, error) {
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 			resp.Body.Close()
 			return nil, fmt.Errorf("HTTP status %d fetching items: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
 		var page []itemResponse
-		err = json.NewDecoder(resp.Body).Decode(&page)
+		err = json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&page)
 		resp.Body.Close()
 		if err != nil {
 			return nil, err

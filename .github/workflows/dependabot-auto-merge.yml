@@ -26,18 +26,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
           set -euo pipefail
 
           # 1. Retrieve PR number from workflow_run payload or query via GitHub CLI
-          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          PR_NUMBER="$EVENT_PR_NUMBER"
           if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
-            echo "PR number not found in event payload. Looking up open PR for head branch '${{ github.event.workflow_run.head_branch }}'..."
-            PR_NUMBER=$(gh pr list --head "${{ github.event.workflow_run.head_branch }}" --state open --json number --jq '.[0].number')
+            echo "PR number not found in event payload. Looking up open PR for head branch '$HEAD_BRANCH'..."
+            PR_NUMBER=$(gh pr list --head "$HEAD_BRANCH" --state open --json number --jq '.[0].number')
           fi
 
           if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
-            echo "No open PR found for branch '${{ github.event.workflow_run.head_branch }}'. Nothing to merge."
+            echo "No open PR found for branch '$HEAD_BRANCH'. Nothing to merge."
             exit 0
           fi
 
