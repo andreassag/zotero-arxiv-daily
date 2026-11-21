@@ -36,9 +36,7 @@ var (
 	WithDebug      = shared.WithDebug
 	WithServer     = shared.WithServer
 
-	parseDate    = shared.ParseDate
-	cleanText    = shared.CleanText
-	parseAuthors = shared.ParseAuthors
+	parseDate = shared.ParseDate
 )
 
 // NewClient creates a new Client configured for medRxiv.

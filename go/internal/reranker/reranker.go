@@ -148,7 +148,7 @@ func saveEmbeddingInputData(candidates []model.Paper, corpus []model.CorpusPaper
 	}
 	s1Bytes, err := json.MarshalIndent(s1, "", "  ")
 	if err == nil {
-		if err := os.WriteFile("outputs/embedding_input_s1.json", s1Bytes, 0644); err == nil {
+		if err := os.WriteFile("outputs/embedding_input_s1.json", s1Bytes, 0600); err == nil {
 			slog.Debug("Saved candidate abstracts to outputs/embedding_input_s1.json")
 		}
 	}
@@ -159,7 +159,7 @@ func saveEmbeddingInputData(candidates []model.Paper, corpus []model.CorpusPaper
 	}
 	s2Bytes, err := json.MarshalIndent(s2, "", "  ")
 	if err == nil {
-		if err := os.WriteFile("outputs/embedding_input_s2.json", s2Bytes, 0644); err == nil {
+		if err := os.WriteFile("outputs/embedding_input_s2.json", s2Bytes, 0600); err == nil {
 			slog.Debug("Saved corpus abstracts to outputs/embedding_input_s2.json")
 		}
 	}
