@@ -319,3 +319,27 @@ func TestSendEmailMockSMTP(t *testing.T) {
 		t.Errorf("expected email body content in received data")
 	}
 }
+
+func TestSendEmailIPv6AddressFormatting(t *testing.T) {
+	port := 2525
+	if ln, err := net.Listen("tcp", "[::1]:0"); err == nil {
+		port = ln.Addr().(*net.TCPAddr).Port
+		_ = ln.Close()
+	}
+
+	cfg := config.EmailConfig{
+		Sender:     "sender@example.com",
+		Receiver:   "receiver@example.com",
+		SMTPServer: "::1",
+		SMTPPort:   port,
+	}
+
+	err := SendEmail(cfg, "<p>IPv6 address formatting test</p>")
+	if err == nil {
+		t.Fatalf("expected dial error to closed IPv6 port, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "[::1]:") {
+		t.Errorf("expected error to contain bracketed IPv6 address '[::1]:', got: %v", err)
+	}
+}

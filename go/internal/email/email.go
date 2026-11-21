@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -340,7 +341,7 @@ func SendEmail(cfg config.EmailConfig, htmlBody string) error {
 		return fmt.Errorf("failed to build MIME message: %w", err)
 	}
 
-	addr := fmt.Sprintf("%s:%d", cfg.SMTPServer, cfg.SMTPPort)
+	addr := net.JoinHostPort(cfg.SMTPServer, strconv.Itoa(cfg.SMTPPort))
 	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SenderPassword, cfg.SMTPServer)
 
 	dialer := &net.Dialer{
