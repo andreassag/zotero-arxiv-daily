@@ -395,7 +395,7 @@ func SendEmail(cfg config.EmailConfig, htmlBody string) error {
 		if err = client.StartTLS(tlsConfig); err != nil {
 			return fmt.Errorf("STARTTLS failed: %w", err)
 		}
-	} else if cfg.SMTPPort != 25 {
+	} else if cfg.SMTPPort != 25 && (cfg.SMTPUser != "" || cfg.SenderPassword != "") {
 		return fmt.Errorf("SMTP server %s does not support STARTTLS; refusing to transmit credentials in cleartext", cfg.SMTPServer)
 	}
 

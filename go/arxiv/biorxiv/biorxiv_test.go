@@ -62,9 +62,9 @@ func TestFetchPapers(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	// Only the latest-date entry (2026-03-02) with the matching category should be returned.
-	if len(papers) != 1 {
-		t.Fatalf("expected 1 paper, got %d", len(papers))
+	// Since the latest date (2026-03-02) has < 5 papers, shared.Client also includes the previous date (2026-03-01).
+	if len(papers) != 2 {
+		t.Fatalf("expected 2 papers, got %d", len(papers))
 	}
 
 	p := papers[0]
